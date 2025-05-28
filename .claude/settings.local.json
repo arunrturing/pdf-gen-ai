@@ -4,7 +4,13 @@
       "Bash(pdftotext:*)",
       "Bash(python3:*)",
       "Bash(pip3 install:*)",
-      "Bash(mkdir:*)"
+      "Bash(mkdir:*)",
+      "Bash(git config:*)",
+      "Bash(git checkout:*)",
+      "Bash(git add:*)",
+      "Bash(ls:*)",
+      "Bash(git check-ignore:*)",
+      "Bash(find:*)"
     ],
     "deny": []
   }
