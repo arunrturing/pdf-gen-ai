@@ -1,0 +1,26 @@
+{
+    "compilerOptions": {
+        "target": "es2018",
+        "module": "commonjs",
+        "declaration": true,
+        "outDir": "./dist",
+        "strict": true,
+        "esModuleInterop": true,
+        "skipLibCheck": true,
+        "forceConsistentCasingInFileNames": true,
+        "resolveJsonModule": true,
+        "baseUrl": ".",
+        "paths": {
+            "@types/*": ["src/types/*"],
+            "@constants/*": ["src/constants/*"],
+            "@utils/*": ["src/utils/*"],
+            "@services/*": ["src/services/*"]
+        },
+        "typeRoots": ["./node_modules/@types", "./src/types"]
+    },
+    "scripts": {
+  "clean": "rimraf dist"
+},
+    "include": ["src/**/*"],
+    "exclude": ["node_modules", "dist", "**/*.test.ts", "tests"]
+}

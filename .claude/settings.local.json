@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pdftotext:*)",
+      "Bash(python3:*)",
+      "Bash(pip3 install:*)",
+      "Bash(mkdir:*)"
+    ],
+    "deny": []
+  }
+}
