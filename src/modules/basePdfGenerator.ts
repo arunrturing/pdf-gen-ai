@@ -96,10 +96,7 @@ interface PdfDocConfig {
  */
 export function formatUrl(url: string): string {
   // Replace backslashes with forward slashes
-  const formattedUrl = url.replace(
-    new RegExp(HTTP_CONSTANTS.BACKSLASH, 'g'), 
-    HTTP_CONSTANTS.FORWARD_SLASH
-  );
+  const formattedUrl = url.replace(/\\/g, HTTP_CONSTANTS.FORWARD_SLASH);
   
   // Ensure the URL has a proper protocol
   return formattedUrl.startsWith(HTTP_CONSTANTS.PROTOCOL_PREFIX) 
