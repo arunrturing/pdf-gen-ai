@@ -1,5 +1,5 @@
-import { ExampleService } from '@modules/example';
-import { DataModel, Configuration } from '@types/index';
+import { ExampleService } from '@modules';
+import { DataModel, Configuration } from '@types';
 
 describe('ExampleService', () => {
     let service: ExampleService;

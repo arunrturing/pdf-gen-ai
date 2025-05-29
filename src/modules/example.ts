@@ -1,5 +1,5 @@
-import { DataModel, Configuration, Result } from '@types/index';
-import { createSuccessResult, createErrorResult } from '@utils/helpers';
+import { DataModel, Configuration, Result } from '@types';
+import { createSuccessResult, createErrorResult } from '@utils';
 
 /**
  * Example service class demonstrating module pattern and type usage

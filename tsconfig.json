@@ -10,10 +10,9 @@
         "forceConsistentCasingInFileNames": true,
         "baseUrl": ".",
         "paths": {
-            "@/*": ["src/*"],
-            "@types/*": ["src/types/*"],
-            "@utils/*": ["src/utils/*"],
-            "@modules/*": ["src/modules/*"]
+            "@types": ["src/types/index.ts"],
+            "@utils": ["src/utils/index.ts"],
+            "@modules": ["src/modules/index.ts"]
         }
     },
     "include": ["src/**/*"],

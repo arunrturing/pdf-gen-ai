@@ -1,4 +1,4 @@
-import { Result } from '@types/index';
+import { Result } from '@types';
 
 /**
  * Creates a successful result object

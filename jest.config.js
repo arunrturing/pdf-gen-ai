@@ -9,9 +9,9 @@ module.exports = {
     moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json', 'node'],
     moduleNameMapper: {
         '^@/(.*)$': '<rootDir>/src/$1',
-        '^@types/(.*)$': '<rootDir>/src/types/$1',
-        '^@utils/(.*)$': '<rootDir>/src/utils/$1',
-        '^@modules/(.*)$': '<rootDir>/src/modules/$1'
+        '^@types$': '<rootDir>/src/types/index.ts',
+        '^@utils$': '<rootDir>/src/utils/index.ts',
+        '^@modules$': '<rootDir>/src/modules/index.ts'
     },
     collectCoverage: true,
     collectCoverageFrom: [

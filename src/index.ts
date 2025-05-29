@@ -2,13 +2,13 @@
  * Main entry point for the library
  */
 
-import { Configuration, DataModel, Result } from '@types/index';
-import { ExampleService } from '@modules/example';
-import * as helpers from '@utils/helpers';
+import { Configuration, DataModel, Result } from '@types';
+import { ExampleService } from '@modules';
+import * as helpers from '@utils';
 
 // Export public API
 export { Configuration, DataModel, Result, ExampleService };
-export { createSuccessResult, createErrorResult } from '@utils/helpers';
+export { createSuccessResult, createErrorResult } from '@utils';
 
 /**
  * Creates a new instance of the ExampleService with default configuration
