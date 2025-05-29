@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git checkout:*)",
+      "Bash(git add:*)",
+      "Bash(git config:*)",
+      "Bash(git push:*)",
+      "Bash(npm test)",
+      "Bash(npm run lint)",
+      "Bash(ls:*)"
+    ],
+    "deny": []
+  }
+}
