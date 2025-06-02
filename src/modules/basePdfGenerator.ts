@@ -96,7 +96,7 @@ interface PdfDocConfig {
  */
 export function formatUrl(url: string): string {
   // Replace backslashes with forward slashes
-  const formattedUrl = url.replace(/\\/g, HTTP_CONSTANTS.FORWARD_SLASH);
+  const formattedUrl = url.replace(new RegExp('\\\\', 'g'), '/');
   
   // Ensure the URL has a proper protocol
   return formattedUrl.startsWith(HTTP_CONSTANTS.PROTOCOL_PREFIX) 
@@ -202,29 +202,29 @@ export function addCompanyNameToHeader(doc: PDFKit.PDFDocument, companyName: str
  * Adds a footer with date and page number to the current page
  * @param doc PDF document to add footer to
  */
-export function addFooter(doc: PDFKit.PDFDocument): void {
-  const currentDate = new Date().toLocaleDateString();
-  const pageNumber = `Page ${doc.bufferedPageRange().count}`;
+// export function addFooter(doc: PDFKit.PDFDocument): void {
+//   const currentDate = new Date().toLocaleDateString();
+//   const pageNumber = `Page ${doc.bufferedPageRange().count}`;
   
-  // Save the current document state
-  doc.save();
+//   // Save the current document state
+//   doc.save();
   
-  // Add date to left side
-  doc.fontSize(PDF_CONSTANTS.FONT.FOOTER_SIZE)
-     .text(currentDate, PDF_CONSTANTS.MARGIN.LEFT, doc.page.height - PDF_CONSTANTS.MARGIN.BOTTOM);
+//   // Add date to left side
+//   doc.fontSize(PDF_CONSTANTS.FONT.FOOTER_SIZE)
+//      .text(currentDate, PDF_CONSTANTS.MARGIN.LEFT, doc.page.height - PDF_CONSTANTS.MARGIN.BOTTOM);
   
-  // Add page number to right side
-  const pageNumberWidth = doc.widthOfString(pageNumber);
-  doc.fontSize(PDF_CONSTANTS.FONT.FOOTER_SIZE)
-     .text(
-       pageNumber, 
-       doc.page.width - PDF_CONSTANTS.MARGIN.RIGHT - pageNumberWidth, 
-       doc.page.height - PDF_CONSTANTS.MARGIN.BOTTOM
-     );
+//   // Add page number to right side
+//   const pageNumberWidth = doc.widthOfString(pageNumber);
+//   doc.fontSize(PDF_CONSTANTS.FONT.FOOTER_SIZE)
+//      .text(
+//        pageNumber, 
+//        doc.page.width - PDF_CONSTANTS.MARGIN.RIGHT - pageNumberWidth, 
+//        doc.page.height - PDF_CONSTANTS.MARGIN.BOTTOM
+//      );
   
-  // Restore the document state
-  doc.restore();
-}
+//   // Restore the document state
+//   doc.restore();
+// }
 
 /**
  * Sets up page event handlers for the PDF document
@@ -397,4 +397,345 @@ if (require.main === module) {
     console.error('Unhandled error in main:', error);
     process.exit(1);
   });
+}
+
+export interface PdfContentItem {
+  attributeType: 'paragraph' | 'signature' | 'designation';
+  content: string;
+}
+
+export interface PdfOptions {
+  outputPath?: string;
+  title?: string;
+  author?: string;
+  subject?: string;
+  keywords?: string;
+  fontSize?: number;
+  fontFamily?: string;
+}
+
+/**
+ * Creates a PDF document with structured content
+ */
+export async function createPdf(
+  logoUrl: string,
+  companyName: string,
+  pdfData: PdfContentItem[],
+  options: PdfOptions = {}
+): Promise<string> {
+  // Create output path with default if not provided
+  const outputPath = options.outputPath || `./output/document-${Date.now()}.pdf`;
+  
+  // Ensure output directory exists
+  const outputDir = path.dirname(outputPath);
+  await fs.promises.mkdir(outputDir, { recursive: true });
+
+  // Create a PDF document
+  const doc = new PDFDocument({
+    margins: { top: 50, bottom: 50, left: 50, right: 50 },
+    size: 'A4',
+    info: {
+      Title: options.title || 'Document',
+      Author: options.author || companyName,
+      Subject: options.subject || '',
+      Keywords: options.keywords || '',
+    }
+  });
+
+  // Create write stream and pipe PDF document to it
+  const writeStream = fs.createWriteStream(outputPath);
+  doc.pipe(writeStream);
+
+  // Set default styles
+  const defaultFontSize = options.fontSize ?? 12;
+  const defaultFont = options.fontFamily ?? 'Helvetica';
+
+  // Add header with logo and company name
+  await addHeaderWithLogo(doc, logoUrl, companyName);
+
+  // Add page numbers to footer
+  addFooter(doc);
+
+  // Reset Y position to start content after header (important!)
+  doc.moveDown(3); // Ensure we're below the header
+
+  // Debug marker - Add a small indicator to show where content begins
+  doc.save()
+     .moveTo(doc.page.width / 2 - 50, doc.y)
+     .lineTo(doc.page.width / 2 + 50, doc.y)
+     .stroke()
+     .restore();
+  
+  // Log content items for debugging
+  console.log(`Processing ${pdfData.length} content items`);
+  
+  // Process each content element with explicit position tracking
+  for (let i = 0; i < pdfData.length; i++) {
+    const item = pdfData[i];
+    
+    // Log item processing
+    console.log(`Processing item ${i+1}: type=${item.attributeType}, content length=${item.content.length}`);
+    
+    // Track position before and after to verify content is added
+    const positionBefore = doc.y;
+    
+    switch (item.attributeType) {
+      case 'paragraph':
+        addParagraph(doc, item.content, defaultFont, defaultFontSize);
+        break;
+        
+      case 'signature':
+        addSignature(doc, item.content, defaultFont, defaultFontSize);
+        break;
+        
+      case 'designation':
+        addDesignation(doc, item.content, defaultFont, defaultFontSize);
+        break;
+    }
+    
+    // Check if the position changed (content was added)
+    const positionAfter = doc.y;
+    console.log(`  Position changed from ${positionBefore} to ${positionAfter}`);
+    
+    // Add extra visual separator between content items for debugging
+    if (i < pdfData.length - 1) {
+      doc.moveDown(0.5)
+         .save()
+         .moveTo(50, doc.y)
+         .lineTo(75, doc.y)
+         .stroke()
+         .restore()
+         .moveDown(0.5);
+    }
+  }
+
+  // Finalize the PDF
+  doc.end();
+
+  // Return a Promise that resolves with the output path when the PDF is written
+  return new Promise<string>((resolve, reject) => {
+    writeStream.on('finish', () => {
+      console.log(`PDF created successfully at: ${outputPath}`);
+      resolve(outputPath);
+    });
+    writeStream.on('error', (err) => {
+      console.error('Error writing PDF:', err);
+      reject(err);
+    });
+  });
+}
+
+/**
+ * Adds a header with logo and company name to the PDF
+ */
+async function addHeaderWithLogo(
+  doc: PDFKit.PDFDocument,
+  logoUrl: string,
+  companyName: string
+): Promise<void> {
+  try {
+    // Set a fixed header position
+    const headerY = 50;
+    
+    // Add logo image - handle both local and remote URLs
+    if (logoUrl.startsWith('http://') || logoUrl.startsWith('https://')) {
+      const response = await axios.get(logoUrl, { responseType: 'arraybuffer' });
+      doc.image(Buffer.from(response.data), 50, headerY, { width: 100 });
+    } else {
+      doc.image(logoUrl, 50, headerY, { width: 100 });
+    }
+    
+    // Add company name on the right side
+    const pageWidth = doc.page.width;
+    doc.fontSize(18)
+       .font('Helvetica-Bold')
+       .text(companyName, pageWidth - 250, headerY, {
+         width: 200,
+         align: 'right'
+       });
+    
+    // Add a divider line
+    doc.moveTo(50, headerY + 80)
+       .lineTo(pageWidth - 50, headerY + 80)
+       .stroke();
+    
+    // Position the cursor below the header for content to start
+    doc.y = headerY + 100;
+    
+  } catch (error) {
+    console.error('Error adding header to PDF:', error);
+    
+    // Fallback: Just add the company name if logo fails
+    doc.fontSize(18)
+       .font('Helvetica-Bold')
+       .text(companyName, 50, 50, {
+         align: 'center'
+       })
+       .moveDown(2);
+  }
+}
+
+/**
+ * Adds footer with page number to the PDF
+ */
+function addFooter(doc: PDFKit.PDFDocument): void {
+  // Store the original page number function
+  const originalAddPage = doc.addPage.bind(doc);
+  
+  // Replace the addPage function with our custom implementation
+  doc.addPage = function() {
+    // Call the original implementation
+    originalAddPage.apply(doc, arguments);
+    
+    // After a page is added, add the footer
+    const pageHeight = doc.page.height;
+    const pageWidth = doc.page.width;
+    const currentPage = doc.bufferedPageRange().count;
+    
+    // Add date on left side
+    doc.font('Helvetica')
+       .fontSize(8)
+       .text(
+          new Date().toLocaleDateString(), 
+          50, 
+          pageHeight - 40, 
+          { align: 'left' }
+       );
+       
+    // Add page number on right side
+    doc.font('Helvetica')
+       .fontSize(8)
+       .text(
+          `Page ${currentPage}`, 
+          pageWidth - 100, 
+          pageHeight - 40, 
+          { align: 'right' }
+       );
+  };
+  
+  // Also add footer to the first page
+  const pageHeight = doc.page.height;
+  const pageWidth = doc.page.width;
+  
+  doc.font('Helvetica')
+     .fontSize(8)
+     .text(
+        new Date().toLocaleDateString(), 
+        50, 
+        pageHeight - 40, 
+        { align: 'left' }
+     );
+     
+  doc.font('Helvetica')
+     .fontSize(8)
+     .text(
+        'Page 1', 
+        pageWidth - 100, 
+        pageHeight - 40, 
+        { align: 'right' }
+     );
+}
+
+/**
+ * Adds a paragraph element to the PDF
+ */
+function addParagraph(
+  doc: PDFKit.PDFDocument,
+  content: string,
+  fontFamily: string,
+  fontSize: number
+): void {
+  // Save the current graphics state
+  doc.save();
+  
+  // Set the paragraph formatting
+  doc.font(fontFamily)
+     .fontSize(fontSize);
+  
+  // Calculate text height to ensure proper positioning
+  const textOptions = {
+    width: doc.page.width - 100,
+    align: 'left' as const
+  };
+  
+  // Add the text
+  doc.text(content, 50, doc.y, textOptions);
+  
+  // Restore graphics state
+  doc.restore();
+  
+  // Add a small space after paragraph
+  doc.moveDown(1);
+}
+
+/**
+ * Adds a signature element to the PDF
+ */
+function addSignature(
+  doc: PDFKit.PDFDocument,
+  content: string,
+  fontFamily: string,
+  fontSize: number
+): void {
+  // Save the current graphics state
+  doc.save();
+  
+  // Move down to create space
+  doc.moveDown(1);
+  
+  // Add "Signature:" label
+  doc.font(fontFamily)
+     .fontSize(fontSize)
+     .text('Signature:', 50, doc.y, {
+       width: 150,
+       align: 'left'
+     });
+  
+  // Draw a signature line
+  const signatureY = doc.y + 5;
+  doc.moveTo(100, signatureY)
+     .lineTo(300, signatureY)
+     .stroke();
+     
+  // Add the signature content below the line
+  doc.moveDown(0.5);
+  doc.font(fontFamily)
+     .fontSize(fontSize)
+     .text(content, 100, doc.y, {
+       width: 200,
+       align: 'center'
+     });
+  
+  // Restore graphics state
+  doc.restore();
+  
+  // Move down after signature
+  doc.moveDown(2);
+}
+
+/**
+ * Adds a designation element to the PDF
+ */
+function addDesignation(
+  doc: PDFKit.PDFDocument,
+  content: string,
+  fontFamily: string,
+  fontSize: number
+): void {
+  // Save the current graphics state
+  doc.save();
+  
+  // Add the designation with specific formatting
+  doc.font(fontFamily)
+     .fontSize(fontSize)
+     .text(content, 50, doc.y, {
+       width: 200,
+       align: 'left'
+     });
+  
+  // Restore graphics state
+  doc.restore();
+  
+  // Move down after designation
+  doc.moveDown(1);
 }
