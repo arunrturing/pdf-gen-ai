@@ -81,7 +81,7 @@ describe('PDF Generator', () => {
 
         // PDF options configuration
         const options: PdfOptions = {
-            outputPath: './test-output/structured-document.pdf',
+            outputPath: `./test-output/structured-document-${Date.now()}.pdf`,
             title: 'Test Structured Document',
             author: 'NOMS Pvt Ltd',
             subject: 'Unit Test Generated Document',
