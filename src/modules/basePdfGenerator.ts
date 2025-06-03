@@ -430,11 +430,10 @@ export async function createPdf(
   const outputDir = path.dirname(outputPath);
   await fs.promises.mkdir(outputDir, { recursive: true });
 
-  // Create a PDF document with tight margins and no auto page creation
+  // Create a PDF document
   const doc = new PDFDocument({
-    margins: { top: 30, bottom: 50, left: 50, right: 50 },
+    margins: { top: 50, bottom: 50, left: 50, right: 50 },
     size: 'A4',
-    autoFirstPage: true,
     info: {
       Title: options.title || 'Document',
       Author: options.author || companyName,
@@ -454,12 +453,31 @@ export async function createPdf(
   // Add header with logo and company name
   await addHeaderWithLogo(doc, logoUrl, companyName);
 
-  // Start content immediately after header
-  doc.moveDown(0.5);
+  // Add page numbers to footer
+  addFooter(doc);
+
+  // Reset Y position to start content after header (important!)
+  doc.moveDown(3); // Ensure we're below the header
+
+  // Debug marker - Add a small indicator to show where content begins
+  doc.save()
+     .moveTo(doc.page.width / 2 - 50, doc.y)
+     .lineTo(doc.page.width / 2 + 50, doc.y)
+     .stroke()
+     .restore();
   
-  // Process each content element
+  // Log content items for debugging
+  console.log(`Processing ${pdfData.length} content items`);
+  
+  // Process each content element with explicit position tracking
   for (let i = 0; i < pdfData.length; i++) {
     const item = pdfData[i];
+    
+    // Log item processing
+    console.log(`Processing item ${i+1}: type=${item.attributeType}, content length=${item.content.length}`);
+    
+    // Track position before and after to verify content is added
+    const positionBefore = doc.y;
     
     switch (item.attributeType) {
       case 'paragraph':
@@ -475,14 +493,21 @@ export async function createPdf(
         break;
     }
     
-    // Add minimal spacing between content items
+    // Check if the position changed (content was added)
+    const positionAfter = doc.y;
+    console.log(`  Position changed from ${positionBefore} to ${positionAfter}`);
+    
+    // Add extra visual separator between content items for debugging
     if (i < pdfData.length - 1) {
-      doc.moveDown(0.1);
+      doc.moveDown(0.5)
+         .save()
+         .moveTo(50, doc.y)
+         .lineTo(75, doc.y)
+         .stroke()
+         .restore()
+         .moveDown(0.5);
     }
   }
-
-  // Add footer at the end
-  addFooter(doc);
 
   // Finalize the PDF
   doc.end();
@@ -509,39 +534,44 @@ async function addHeaderWithLogo(
   companyName: string
 ): Promise<void> {
   try {
-    // Set a compact header position
-    const headerY = 30;
+    // Set a fixed header position
+    const headerY = 50;
     
     // Add logo image - handle both local and remote URLs
     if (logoUrl.startsWith('http://') || logoUrl.startsWith('https://')) {
       const response = await axios.get(logoUrl, { responseType: 'arraybuffer' });
-      doc.image(Buffer.from(response.data), 50, headerY, { width: 80, height: 55 });
+      doc.image(Buffer.from(response.data), 50, headerY, { width: 100 });
     } else {
-      doc.image(logoUrl, 50, headerY, { width: 80, height: 55 });
+      doc.image(logoUrl, 50, headerY, { width: 100 });
     }
     
     // Add company name on the right side
     const pageWidth = doc.page.width;
-    doc.fontSize(14)
+    doc.fontSize(18)
        .font('Helvetica-Bold')
-       .text(companyName, pageWidth - 200, headerY + 10, {
-         width: 150,
+       .text(companyName, pageWidth - 250, headerY, {
+         width: 200,
          align: 'right'
        });
     
+    // Add a divider line
+    doc.moveTo(50, headerY + 80)
+       .lineTo(pageWidth - 50, headerY + 80)
+       .stroke();
+    
     // Position the cursor below the header for content to start
-    doc.y = headerY + 65;
+    doc.y = headerY + 100;
     
   } catch (error) {
     console.error('Error adding header to PDF:', error);
     
     // Fallback: Just add the company name if logo fails
-    doc.fontSize(14)
+    doc.fontSize(18)
        .font('Helvetica-Bold')
-       .text(companyName, 50, 30, {
+       .text(companyName, 50, 50, {
          align: 'center'
-       });
-    doc.y = 80;
+       })
+       .moveDown(2);
   }
 }
 
@@ -549,14 +579,44 @@ async function addHeaderWithLogo(
  * Adds footer with page number to the PDF
  */
 function addFooter(doc: PDFKit.PDFDocument): void {
-  // Add footer to the current page
+  // Store the original page number function
+  const originalAddPage = doc.addPage.bind(doc);
+  
+  // Replace the addPage function with our custom implementation
+  doc.addPage = function() {
+    // Call the original implementation
+    originalAddPage.apply(doc, arguments);
+    
+    // After a page is added, add the footer
+    const pageHeight = doc.page.height;
+    const pageWidth = doc.page.width;
+    const currentPage = doc.bufferedPageRange().count;
+    
+    // Add date on left side
+    doc.font('Helvetica')
+       .fontSize(8)
+       .text(
+          new Date().toLocaleDateString(), 
+          50, 
+          pageHeight - 40, 
+          { align: 'left' }
+       );
+       
+    // Add page number on right side
+    doc.font('Helvetica')
+       .fontSize(8)
+       .text(
+          `Page ${currentPage}`, 
+          pageWidth - 100, 
+          pageHeight - 40, 
+          { align: 'right' }
+       );
+  };
+  
+  // Also add footer to the first page
   const pageHeight = doc.page.height;
   const pageWidth = doc.page.width;
   
-  // Save current position and settings
-  const currentY = doc.y;
-  
-  // Add date on left side
   doc.font('Helvetica')
      .fontSize(8)
      .text(
@@ -566,7 +626,6 @@ function addFooter(doc: PDFKit.PDFDocument): void {
         { align: 'left' }
      );
      
-  // Add page number on right side
   doc.font('Helvetica')
      .fontSize(8)
      .text(
@@ -575,9 +634,6 @@ function addFooter(doc: PDFKit.PDFDocument): void {
         pageHeight - 40, 
         { align: 'right' }
      );
-  
-  // Restore previous position
-  doc.y = currentY;
 }
 
 /**
@@ -592,17 +648,14 @@ function addParagraph(
   // Save the current graphics state
   doc.save();
   
-  // Set compact paragraph formatting
+  // Set the paragraph formatting
   doc.font(fontFamily)
-     .fontSize(fontSize * 0.9); // Slightly smaller font
+     .fontSize(fontSize);
   
-  // Use compact text options to prevent page breaks
+  // Calculate text height to ensure proper positioning
   const textOptions = {
     width: doc.page.width - 100,
-    align: 'left' as const,
-    lineGap: 1, // Minimal line spacing
-    height: 100, // Limit text height to prevent page overflow
-    ellipsis: false
+    align: 'left' as const
   };
   
   // Add the text
@@ -612,7 +665,7 @@ function addParagraph(
   doc.restore();
   
   // Add a small space after paragraph
-  doc.moveDown(0.2);
+  doc.moveDown(1);
 }
 
 /**
@@ -628,7 +681,7 @@ function addSignature(
   doc.save();
   
   // Move down to create space
-  doc.moveDown(0.2);
+  doc.moveDown(1);
   
   // Add "Signature:" label
   doc.font(fontFamily)
@@ -657,7 +710,7 @@ function addSignature(
   doc.restore();
   
   // Move down after signature
-  doc.moveDown(0.2);
+  doc.moveDown(2);
 }
 
 /**
@@ -684,5 +737,5 @@ function addDesignation(
   doc.restore();
   
   // Move down after designation
-  doc.moveDown(0.1);
+  doc.moveDown(1);
 }
