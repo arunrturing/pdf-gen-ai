@@ -2,6 +2,8 @@ import PDFDocument from 'pdfkit';
 import fs from 'fs';
 import path from 'path';
 import axios from 'axios';
+import { Buffer } from 'buffer';
+import sizeOf from 'image-size';
 
 /**
  * Options for customizing the PDF generation
@@ -183,47 +185,34 @@ export const createHeaderedParagraphsPDF = async (
  */
 async function fetchLogo(logoUrl: string): Promise<LogoResult> {
   try {
+    // Fetch image data from URL
     const response = await axios.get(logoUrl, {
       responseType: 'arraybuffer'
     });
     
     const imageData = Buffer.from(response.data);
     
-    // Use PDFKit to get image dimensions
-    // This is a workaround as we need dimensions before adding to doc
-    const tempDoc = new PDFDocument();
-    
-    // Register an event listener for when the image is added
-    let width = 0;
-    let height = 0;
-    
-    tempDoc.image(imageData, 0, 0, {
-      fit: [1000, 1000],  // Large size to avoid scaling
-      align: 'center',
-      valign: 'center'
-    });
-    
-    // Get the last added operation which should be the image
-    const lastOp = tempDoc.page.operations[tempDoc.page.operations.length - 1];
-    if (lastOp && lastOp.operator === 'Do' && lastOp.args) {
-      const imgRef = lastOp.args[0];
-      const img = tempDoc.page.xobjects[imgRef];
-      if (img) {
-        width = img.width;
-        height = img.height;
+    // Use image-size library to get dimensions
+    try {
+      const dimensions = sizeOf(imageData);
+      if (dimensions.width && dimensions.height) {
+        return { 
+          imageData,
+          width: dimensions.width,
+          height: dimensions.height 
+        };
       }
+    } catch (sizeError) {
+      console.warn('Could not determine image size, using fallback dimensions:', sizeError);
     }
     
-    // Clean up temp document
-    tempDoc.end();
+    // Fallback dimensions if we couldn't determine them
+    return { 
+      imageData,
+      width: 100,
+      height: 50 
+    };
     
-    if (width === 0 || height === 0) {
-      // Fallback dimensions if we couldn't get them
-      width = 100;
-      height = 50;
-    }
-    
-    return { imageData, width, height };
   } catch (error) {
     throw new Error(`Error fetching logo: ${error instanceof Error ? error.message : String(error)}`);
   }
