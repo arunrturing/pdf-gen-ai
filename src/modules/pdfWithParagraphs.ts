@@ -33,6 +33,8 @@ interface PDFOptions {
   maxLogoHeight?: number;
   /** Space between header and content in points */
   headerBottomMargin?: number;
+  /** Top offset for header position (smaller value places header higher) */
+  headerTopOffset?: number;
 }
 
 /**
@@ -74,7 +76,8 @@ export const createHeaderedParagraphsPDF = async (
     outputPath,
     maxLogoWidth = 150,
     maxLogoHeight = 50,
-    headerBottomMargin = 30
+    headerBottomMargin = 30,
+    headerTopOffset = 20  // New option to control header vertical position
   } = options;
 
   // Calculate the content width
@@ -139,17 +142,23 @@ export const createHeaderedParagraphsPDF = async (
         });
       }
 
-      // Add header with logo and company name
+      // Position the header at the specified top offset rather than at default margin
+      const headerY = doc.page.margins.top - marginTop + headerTopOffset;
+
+      // Add header with logo and company name at the adjusted position
       addHeaderWithLogo(doc, logoResult, companyName, {
         contentWidth,
         maxLogoWidth,
         maxLogoHeight,
         headerFontSize,
-        font
+        font,
+        y: headerY
       });
 
-      // Add spacing after header
-      doc.moveDown(headerBottomMargin / fontSize);
+      // Reset cursor position to top margin plus header height plus spacing
+      const logoHeight = Math.min(logoResult.height, maxLogoHeight);
+      const effectiveHeaderHeight = Math.max(logoHeight, headerFontSize);
+      doc.y = headerY + effectiveHeaderHeight + headerBottomMargin;
 
       // Set font for body content
       doc.font(font)
@@ -231,10 +240,11 @@ function addHeaderWithLogo(
     maxLogoHeight: number;
     headerFontSize: number;
     font: string;
+    y: number;
   }
 ) {
   const { imageData, width: originalWidth, height: originalHeight } = logoResult;
-  const { contentWidth, maxLogoWidth, maxLogoHeight, headerFontSize, font } = options;
+  const { contentWidth, maxLogoWidth, maxLogoHeight, headerFontSize, font, y } = options;
 
   // Scale logo to fit within maximum dimensions while preserving aspect ratio
   let logoWidth = originalWidth;
@@ -252,52 +262,20 @@ function addHeaderWithLogo(
     logoWidth = logoWidth * scaleFactor;
   }
 
-  // Save current position
-  const { y: startY } = doc;
-  
-  // Add logo on the left
-  doc.image(imageData, doc.page.margins.left, startY, {
+  // Add logo on the left at the specified y position
+  doc.image(imageData, doc.page.margins.left, y, {
     width: logoWidth,
     height: logoHeight
   });
 
-  // Add company name on the right
+  // Add company name on the right, vertically aligned with the logo
   doc.font(`${font}-Bold`)
      .fontSize(headerFontSize)
      .text(companyName, 
            doc.page.margins.left + logoWidth + 10, 
-           startY + (logoHeight / 2) - (headerFontSize / 2), 
+           y + (logoHeight / 2) - (headerFontSize / 2), 
            {
              width: contentWidth - logoWidth - 10,
              align: 'right'
            });
-
-  // Move document position below the header (below logo or text, whichever is taller)
-  const textHeight = headerFontSize;
-  const newY = Math.max(startY + logoHeight, startY + textHeight);
-  doc.y = newY;
 }
-
-/**
- * Creates and saves a PDF document with a header and paragraphs to a file
- * @param logoUrl URL of the logo image
- * @param companyName Name of the company to display in the header
- * @param paragraphs Array of strings, each representing a paragraph
- * @param outputPath Path where the PDF file should be saved
- * @param options Configuration options for the PDF
- * @returns Promise resolving to the file path where PDF was saved
- */
-export const createAndSaveHeaderedParagraphsPDF = async (
-  logoUrl: string,
-  companyName: string,
-  paragraphs: string[],
-  outputPath: string,
-  options: Omit<PDFOptions, 'outputPath'> = {}
-): Promise<string> => {
-  try {
-    await createHeaderedParagraphsPDF(logoUrl, companyName, paragraphs, { ...options, outputPath });
-    return outputPath;
-  } catch (error) {
-    throw new Error(`Failed to create and save PDF: ${error instanceof Error ? error.message : String(error)}`);
-  }
-};
