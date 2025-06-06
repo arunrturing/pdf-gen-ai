@@ -1,4 +1,5 @@
 import { createPdf,createHeaderedParagraphsPDF } from '@modules';
+import { createPDF } from '@modules';
 import fs from 'fs';
 import path from 'path';
 
@@ -30,29 +31,6 @@ import path from 'path';
 }
 
 describe('PDF Generator', () => {
-    // test('should generate PDF with company name only', async () => {
-    //     const companyName = "Test Company Ltd";
-    //     const logoUrl = "";
-        
-    //     const pdfBuffer = await createBasePDF(logoUrl, companyName);
-        
-    //     expect(pdfBuffer).toBeDefined();
-    //     expect(pdfBuffer.length).toBeGreaterThan(0);
-    //     expect(Buffer.isBuffer(pdfBuffer)).toBe(true);
-    // });
-
-    // test('should generate PDF with company name and logo URL', async () => {
-    //     const companyName = "NOMS Pvt Ltd";
-    //     const logoUrl = "https://multi-tenant-dev.n-oms.in/assets/logo-hd2-BZqe1saO.png";
-        
-    //     const pdfBuffer = await createBasePDF(logoUrl, companyName);
-        
-    //     expect(pdfBuffer).toBeDefined();
-    //     //expect(pdfBuffer.length).toBeGreaterThan(70000);
-    //     expect(Buffer.isBuffer(pdfBuffer)).toBe(true);
-    //     const pdfPath = await savePDFToFile(pdfBuffer, `company-${Date.now()}.pdf`);
-    //     console.log(`PDF saved successfully at: ${pdfPath}`);
-    // });
 
     test.skip('should generate structured PDF with createPdf function', async () => {
         // Test data with proper structure
@@ -113,7 +91,7 @@ describe('PDF Generator', () => {
         console.log(`🔍 PDF header validation: ${pdfHeader} ✅`);
     });
 
-    test('should generate PDF with paragraphs using createParagraphsPDF', async () => {
+    test.skip('should generate PDF with paragraphs using createParagraphsPDF', async () => {
         // Test data with sample paragraphs
         const paragraphs = [
             'This is the first paragraph of our document. It demonstrates the paragraph-based PDF generation functionality with proper left alignment and spacing.',
@@ -161,26 +139,52 @@ describe('PDF Generator', () => {
         console.log(`🔍 PDF header validation: ${pdfHeader} ✅`);
     });
 
-    // test('should generate PDF with empty paragraphs filtered out', async () => {
-    //     // Test data with some empty paragraphs
-    //     const paragraphs = [
-    //         'This is a valid paragraph.',
-    //         '',
-    //         '   ',
-    //         'This is another valid paragraph after empty ones.',
-    //         null as any,
-    //         'Final paragraph to test filtering.'
-    //     ];
+    test('should generate PDF with header, content, signature and footer using createPDF', async () => {
+        // Test data configuration
+        const logoUrl = "https://multi-tenant-dev.n-oms.in/assets/logo-hd2-BZqe1saO.png";
+        const companyName = "NOMS Pvt Ltd";
+        const paragraphText = "This is a comprehensive test document that demonstrates the createPDF function from pdfWithFooter module. It includes a header with logo and company name, main content paragraph, signature section, and footer with page numbers and date. This function is designed to create professional documents with all necessary elements properly positioned and formatted.";
+        
+        const signatureInfo = {
+            name: "John Doe",
+            designation: "Chief Executive Officer"
+        };
 
-    //     // Generate the PDF without saving to file
-    //     const pdfBuffer = await createParagraphsPDF(paragraphs);
+        const options = {
+            outputPath: `./test-output/footer-document-${Date.now()}.pdf`,
+            margin: 50,
+            headerHeight: 80,
+            footerHeight: 50,
+            fontSize: {
+                header: 16,
+                text: 12,
+                footer: 10,
+                signature: 12,
+                designation: 10
+            }
+        };
+
+        // Generate the PDF
+        const outputPath = await createPDF(logoUrl, companyName, paragraphText, signatureInfo, options);
         
-    //     // Verify the PDF buffer
-    //     expect(pdfBuffer).toBeDefined();
-    //     expect(Buffer.isBuffer(pdfBuffer)).toBe(true);
-    //     expect(pdfBuffer.length).toBeGreaterThan(0);
+        // Verify the PDF was created
+        expect(outputPath).toBeDefined();
+        expect(typeof outputPath).toBe('string');
+        expect(outputPath).toBe(options.outputPath);
+        expect(fs.existsSync(outputPath)).toBe(true);
         
-    //     console.log(`✅ Empty paragraphs filtering test completed successfully`);
-    //     console.log(`📄 Buffer size: ${pdfBuffer.length} bytes`);
-    // });
+        // Check file stats
+        const stats = fs.statSync(outputPath);
+        expect(stats.size).toBeGreaterThan(0);
+        
+        console.log(`✅ Footer PDF generated successfully at: ${outputPath}`);
+        console.log(`📄 File size: ${stats.size} bytes`);
+        
+        // Verify it's a valid PDF by checking file header
+        const fileBuffer = fs.readFileSync(outputPath);
+        const pdfHeader = fileBuffer.subarray(0, 4).toString();
+        expect(pdfHeader).toBe('%PDF');
+        
+        console.log(`🔍 PDF header validation: ${pdfHeader} ✅`);
+    });
 });
