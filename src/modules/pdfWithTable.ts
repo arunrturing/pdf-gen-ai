@@ -23,6 +23,7 @@ const SPACING = {
 const LOGO_MAX_WIDTH = 150;
 const LOGO_MAX_HEIGHT = 50;
 const TABLE_LINE_WIDTH = 0.5;
+const FOOTER_MARGIN_BOTTOM = 15;
 
 // Interfaces
 interface PDFOptions {
@@ -123,37 +124,53 @@ async function addElegantHeader(
 }
 
 /**
- * Adds an elegant footer with page numbers
+ * Adds an elegant footer with page numbers on the same page as content
  */
 function addElegantFooter(
   doc: PDFKit.PDFDocument,
-  currentPage: number,
+  pageNumber: number,
   totalPages: number,
   margin: number
 ): void {
-  const pageBottom = doc.page.height - margin / 2;
+  // Calculate footer position at bottom of page
+  const footerY = doc.page.height - margin - FOOTER_MARGIN_BOTTOM;
   
-  // Add current date to the left
+  // Format date with elegant format
+  const currentDate = new Date().toLocaleDateString('en-US', {
+    year: 'numeric', 
+    month: 'long', 
+    day: 'numeric'
+  });
+  
+  // Save current drawing state
+  doc.save();
+  
+  // Add subtle line above footer
+  doc.strokeColor('#cccccc')
+     .lineWidth(0.5)
+     .moveTo(margin, footerY - 10)
+     .lineTo(doc.page.width - margin, footerY - 10)
+     .stroke();
+
+  // Return to default color
+  doc.fillColor('black');
+  
+  // Add date on left side of footer
   doc.font('Helvetica')
      .fontSize(FONT_SIZES.footer)
-     .text(
-       new Date().toLocaleDateString(),
-       margin,
-       pageBottom
-     );
+     .text(currentDate, 
+           margin, 
+           footerY, 
+           { align: 'left' });
+
+  // Add page number on right side (same footer, same page)
+  doc.text(`Page ${pageNumber} of ${totalPages}`,
+           doc.page.width - margin - 100,
+           footerY,
+           { align: 'right', width: 100 });
   
-  // Add page number to the right
-  const pageText = `Page ${currentPage} of ${totalPages}`;
-  
-  // Set font size first, then calculate width
-  doc.fontSize(FONT_SIZES.footer);
-  const pageTextWidth = doc.widthOfString(pageText);
-  
-  doc.text(
-    pageText,
-    doc.page.width - margin - pageTextWidth,
-    pageBottom
-  );
+  // Restore drawing state
+  doc.restore();
 }
 
 /**
@@ -213,8 +230,9 @@ function addProfessionalTable(
      .fontSize(FONT_SIZES.tableCell);
   
   tableData.items.forEach(row => {
-    // Check for page break
-    if (currentY + 20 > doc.page.height - margin) {
+    // Check for page break, leaving space for footer
+    const footerSpace = margin + FOOTER_MARGIN_BOTTOM + 20; // Space for footer
+    if (currentY + 20 > doc.page.height - footerSpace) {
       doc.addPage();
       currentY = margin;
     }
@@ -315,11 +333,11 @@ export async function createPDFWithTable(
         margin
       );
       
-      // Get the total number of pages
+      // Add footers to each page - doing this at end to know total pages
       const range = doc.bufferedPageRange();
       const totalPages = range.count;
       
-      // Apply elegant footer to each page
+      // For each page, add a footer
       for (let i = 0; i < totalPages; i++) {
         doc.switchToPage(i);
         addElegantFooter(doc, i + 1, totalPages, margin);
