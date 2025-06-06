@@ -43,7 +43,7 @@ interface LogoResult {
 }
 
 interface PdfContentItem {
-  attributeType: 'paragraph' | 'signature' | 'designation';
+  attributeType: 'paragraph';
   content: string;
 }
 
@@ -88,7 +88,13 @@ async function getLogoImage(logoUrl: string): Promise<LogoResult> {
 }
 
 /**
- * Creates a PDF document with a header, footer, content paragraphs, and table
+ * Creates a PDF document with header, footer, paragraph, and table
+ * @param logoUrl URL or path to the logo image
+ * @param companyName Name of the company for the header
+ * @param pdfData Array of content items to include in the PDF
+ * @param tableData Optional table data to include after the content
+ * @param options Additional options for customizing the PDF
+ * @returns PDF document instance
  */
 export async function createPDFWithTable(
   logoUrl: string, 
@@ -115,15 +121,6 @@ export async function createPDFWithTable(
   
   doc.font(fontFamily).fontSize(fontSize);
   
-  // Track total pages and current page
-  let totalPages = 1;
-  let currentPage = 1;
-  
-  doc.on('pageAdded', () => {
-    totalPages++;
-    currentPage++;
-  });
-
   // Get logo dimensions
   let logoResult: LogoResult | null = null;
   try {
@@ -133,52 +130,166 @@ export async function createPDFWithTable(
     // Continue without logo
   }
 
-  // Function to add header to each page
-  const addHeader = (headerTopOffset = options.headerTopOffset || DEFAULT_MARGINS.top / 2) => {
-    const pageTop = headerTopOffset;
+  // Add header
+  if (logoResult) {
+    // Calculate scaled dimensions to maintain aspect ratio
+    const scaleFactor = Math.min(
+      LOGO_MAX_WIDTH / logoResult.width,
+      LOGO_MAX_HEIGHT / logoResult.height,
+      1 // Don't scale up small images
+    );
     
-    // Start header at the specified Y position
-    let currentY = pageTop;
+    const scaledWidth = logoResult.width * scaleFactor;
+    const scaledHeight = logoResult.height * scaleFactor;
     
-    // Add logo if available
-    if (logoResult) {
-      // Calculate scaled dimensions to maintain aspect ratio
-      const scaleFactor = Math.min(
-        LOGO_MAX_WIDTH / logoResult.width,
-        LOGO_MAX_HEIGHT / logoResult.height,
-        1 // Don't scale up small images
-      );
+    // Add logo to the left side
+    doc.image(logoResult.image, DEFAULT_MARGINS.left, DEFAULT_MARGINS.top / 2, {
+      width: scaledWidth,
+      height: scaledHeight
+    });
+  }
+  
+  // Add company name to the right side
+  doc.font(`${fontFamily}-Bold`)
+     .fontSize(HEADER_COMPANY_NAME_FONT_SIZE)
+     .text(companyName, 
+          doc.page.width - DEFAULT_MARGINS.right - doc.widthOfString(companyName),
+          DEFAULT_MARGINS.top / 2);
+  
+  // Reset font and add space after header
+  doc.font(fontFamily).fontSize(fontSize).moveDown(2);
+  
+  // Process paragraphs
+  for (const item of pdfData) {
+    if (item.attributeType === 'paragraph') {
+      doc.font(fontFamily)
+         .fontSize(fontSize)
+         .text(item.content, {
+            align: 'left',
+            lineGap: (lineHeight - 1) * fontSize,
+            width: doc.page.width - DEFAULT_MARGINS.left - DEFAULT_MARGINS.right
+         });
+      doc.moveDown();
+    }
+  }
+  
+  // Add table
+  if (tableData && tableData.items.length > 0) {
+    doc.moveDown();
+    
+    // Add table heading
+    doc.font(`${fontFamily}-Bold`)
+       .fontSize(fontSize + 2)
+       .text(tableData.tableHeading, {
+         align: 'center'
+       });
+    doc.moveDown();
+    
+    const columnNames = Object.keys(tableData.items[0]);
+    const tableWidth = doc.page.width - DEFAULT_MARGINS.left - DEFAULT_MARGINS.right;
+    const columnWidth = tableWidth / columnNames.length;
+    
+    // Draw table header
+    let startX = DEFAULT_MARGINS.left;
+    let startY = doc.y;
+    
+    // Table header (column names)
+    doc.font(`${fontFamily}-Bold`);
+    columnNames.forEach(name => {
+      doc.text(name, startX, startY, {
+        width: columnWidth,
+        align: 'center'
+      });
+      startX += columnWidth;
+    });
+    
+    // Draw header separator line
+    startY = doc.y + 5;
+    doc.moveTo(DEFAULT_MARGINS.left, startY)
+       .lineTo(DEFAULT_MARGINS.left + tableWidth, startY)
+       .stroke();
+    
+    // Table rows
+    doc.font(fontFamily);
+    startY += 10;
+    
+    tableData.items.forEach((row, rowIndex) => {
+      // Check if we need a new page for this row
+      if (startY + 20 > doc.page.height - DEFAULT_MARGINS.bottom) {
+        doc.addPage();
+        
+        // Add header to new page
+        if (logoResult) {
+          const scaleFactor = Math.min(
+            LOGO_MAX_WIDTH / logoResult.width,
+            LOGO_MAX_HEIGHT / logoResult.height,
+            1
+          );
+          
+          const scaledWidth = logoResult.width * scaleFactor;
+          const scaledHeight = logoResult.height * scaleFactor;
+          
+          doc.image(logoResult.image, DEFAULT_MARGINS.left, DEFAULT_MARGINS.top / 2, {
+            width: scaledWidth,
+            height: scaledHeight
+          });
+        }
+        
+        doc.font(`${fontFamily}-Bold`)
+           .fontSize(HEADER_COMPANY_NAME_FONT_SIZE)
+           .text(companyName, 
+                doc.page.width - DEFAULT_MARGINS.right - doc.widthOfString(companyName),
+                DEFAULT_MARGINS.top / 2);
+                
+        doc.font(fontFamily).fontSize(fontSize).moveDown(2);
+        
+        // Reset starting position for the new page
+        startY = doc.y;
+      }
       
-      const scaledWidth = logoResult.width * scaleFactor;
-      const scaledHeight = logoResult.height * scaleFactor;
+      // Draw the row cells
+      startX = DEFAULT_MARGINS.left;
+      const rowY = startY;
+      let maxRowHeight = 0;
       
-      // Add logo to the left side
-      doc.image(logoResult.image, DEFAULT_MARGINS.left, currentY, {
-        width: scaledWidth,
-        height: scaledHeight
+      // First pass: calculate the maximum row height
+      columnNames.forEach(name => {
+        const cellValue = String(row[name] || '');
+        const textHeight = doc.heightOfString(cellValue, {
+          width: columnWidth,
+          align: 'center'
+        });
+        maxRowHeight = Math.max(maxRowHeight, textHeight);
       });
       
-      // Update currentY to be below the logo if needed
-      currentY += scaledHeight;
-    }
+      // Second pass: draw cells
+      columnNames.forEach(name => {
+        const cellValue = String(row[name] || '');
+        doc.text(cellValue, startX, rowY, {
+          width: columnWidth,
+          align: 'center'
+        });
+        startX += columnWidth;
+      });
+      
+      // Draw row separator
+      startY = rowY + maxRowHeight + 5;
+      doc.moveTo(DEFAULT_MARGINS.left, startY)
+         .lineTo(DEFAULT_MARGINS.left + tableWidth, startY)
+         .lineWidth(0.5)
+         .stroke();
+      
+      // Set position for next row
+      startY += 10;
+    });
+  }
+  
+  // Add footer to all pages
+  const totalPages = doc.bufferedPageRange().count;
+  
+  for (let i = 0; i < totalPages; i++) {
+    doc.switchToPage(i);
     
-    // Add company name to the right side
-    doc.font(`${fontFamily}-Bold`)
-       .fontSize(HEADER_COMPANY_NAME_FONT_SIZE)
-       .text(companyName, 
-            doc.page.width - DEFAULT_MARGINS.right - doc.widthOfString(companyName),
-            pageTop);
-    
-    // Reset font and return the header height
-    doc.font(fontFamily).fontSize(fontSize);
-    
-    // Add some space after the header
-    doc.moveDown(2);
-    return Math.max(currentY - pageTop, HEADER_COMPANY_NAME_FONT_SIZE) + 20;
-  };
-
-  // Function to add footer to each page
-  const addFooter = () => {
     const pageBottom = doc.page.height - DEFAULT_MARGINS.bottom / 2;
     
     // Add current date to the left
@@ -191,150 +302,16 @@ export async function createPDFWithTable(
        );
     
     // Add page number to the right
-    // Note: Using the tracked currentPage and totalPages instead of accessing page properties
     const pageText = PAGE_NUMBER_FORMAT
-      .replace('%d', String(currentPage))
+      .replace('%d', String(i + 1))
       .replace('%d', String(totalPages));
       
     doc.text(
       pageText,
-      doc.page.width - DEFAULT_MARGINS.right - doc.widthOfString(pageText),
+      doc.page.width - DEFAULT_MARGINS.right - doc.widthOfString(pageText, { fontSize: FOOTER_FONT_SIZE }),
       pageBottom
     );
-  };
-
-  // Add header to the first page
-  const headerHeight = addHeader();
-  
-  // Process content items - maintain original paragraph formatting
-  for (const item of pdfData) {
-    switch (item.attributeType) {
-      case 'paragraph':
-        doc.font(fontFamily)
-           .fontSize(fontSize)
-           .text(item.content, {
-              align: 'justify', // Maintain justified alignment
-              lineGap: (lineHeight - 1) * fontSize,
-              width: doc.page.width - DEFAULT_MARGINS.left - DEFAULT_MARGINS.right,
-              indent: 0
-           });
-        doc.moveDown();
-        break;
-      
-      case 'signature':
-        doc.font(`${fontFamily}-Bold`)
-           .fontSize(fontSize)
-           .text(item.content, {
-              align: 'left',
-              width: doc.page.width - DEFAULT_MARGINS.left - DEFAULT_MARGINS.right
-           });
-        break;
-      
-      case 'designation':
-        doc.font(fontFamily)
-           .fontSize(fontSize - 2)
-           .text(item.content, {
-              align: 'left',
-              width: doc.page.width - DEFAULT_MARGINS.left - DEFAULT_MARGINS.right
-           });
-        doc.moveDown();
-        break;
-    }
   }
-  
-  // Add table if provided, ensuring it appears below the paragraphs
-  if (tableData && tableData.items.length > 0) {
-    // Add more spacing before table to clearly separate from paragraphs
-    doc.moveDown(2);
-    
-    // Add table heading
-    doc.font(`${fontFamily}-Bold`)
-       .fontSize(fontSize + 2)
-       .text(tableData.tableHeading, {
-         align: 'center',
-         width: doc.page.width - DEFAULT_MARGINS.left - DEFAULT_MARGINS.right
-       });
-    doc.moveDown();
-    
-    // Get column names from first item
-    const columnNames = Object.keys(tableData.items[0]);
-    
-    // Calculate column widths (equal distribution)
-    const tableWidth = doc.page.width - DEFAULT_MARGINS.left - DEFAULT_MARGINS.right;
-    const columnWidth = tableWidth / columnNames.length;
-    
-    // Draw table header
-    doc.font(`${fontFamily}-Bold`)
-       .fontSize(fontSize);
-       
-    // Save the starting Y position of the table header
-    const tableHeaderY = doc.y;
-    
-    // Draw header cells
-    columnNames.forEach((columnName, index) => {
-      const xPos = DEFAULT_MARGINS.left + (index * columnWidth);
-      doc.text(columnName, xPos, tableHeaderY, {
-        width: columnWidth,
-        align: 'center'
-      });
-    });
-    
-    // Move down after the header text
-    const headerHeight = fontSize * 1.5;
-    
-    // Draw a line under the header
-    doc.moveTo(DEFAULT_MARGINS.left, tableHeaderY + headerHeight)
-       .lineTo(doc.page.width - DEFAULT_MARGINS.right, tableHeaderY + headerHeight)
-       .stroke();
-       
-    // Position for first row
-    let rowY = tableHeaderY + headerHeight + 5;
-    
-    // Draw table rows
-    doc.font(fontFamily)
-       .fontSize(fontSize);
-       
-    tableData.items.forEach((item, index) => {
-      // Check if we're close to the bottom of the page and need a new page
-      if (rowY + 3 * fontSize > doc.page.height - DEFAULT_MARGINS.bottom) {
-        doc.addPage();
-        addHeader();
-        rowY = doc.y; // Reset rowY to current position after header
-      }
-      
-      // Draw each cell in the row
-      columnNames.forEach((columnName, colIndex) => {
-        const xPos = DEFAULT_MARGINS.left + (colIndex * columnWidth);
-        const cellContent = String(item[columnName] || '');
-        doc.text(cellContent, xPos, rowY, {
-          width: columnWidth,
-          align: 'center'
-        });
-      });
-      
-      // Calculate the row height (use line height or fixed value)
-      const rowHeight = fontSize * 1.5;
-      
-      // Draw a light line under the row
-      doc.moveTo(DEFAULT_MARGINS.left, rowY + rowHeight)
-         .lineTo(doc.page.width - DEFAULT_MARGINS.right, rowY + rowHeight)
-         .lineWidth(0.5)
-         .stroke();
-         
-      // Move to next row position
-      rowY += rowHeight + 5;
-      doc.y = rowY; // Update doc.y to match our tracking
-    });
-  }
-  
-  // Add footer to each page
-  addFooter();
-  
-  // Register event to add header and footer to new pages
-  doc.on('pageAdded', () => {
-    addHeader();
-    addFooter();
-  });
 
   return doc;
 }
