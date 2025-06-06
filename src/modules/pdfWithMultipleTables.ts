@@ -38,11 +38,6 @@ interface LogoResult {
   height: number;
 }
 
-interface PdfContentItem {
-  attributeType: 'paragraph';
-  content: string;
-}
-
 interface TableData {
   tableHeading: string;
   items: Array<Record<string, string | number>>;
