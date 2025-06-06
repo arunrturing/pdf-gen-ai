@@ -19,7 +19,6 @@ const HEADER_COMPANY_NAME_FONT_SIZE = 16;
 const LOGO_MAX_HEIGHT = 50;
 const LOGO_MAX_WIDTH = 150;
 const FOOTER_FONT_SIZE = 10;
-const PAGE_NUMBER_FORMAT = 'Page %d of %d';
 
 // Interfaces
 interface PDFOptions {
@@ -32,7 +31,6 @@ interface PDFOptions {
     left?: number;
     right?: number;
   };
-  headerTopOffset?: number;
   outputDir?: string;
 }
 
@@ -57,19 +55,15 @@ interface TableData {
  */
 async function getLogoImage(logoUrl: string): Promise<LogoResult> {
   try {
-    // Handle both remote URLs and local file paths
     let imageBuffer: Buffer;
     
     if (logoUrl.startsWith('http://') || logoUrl.startsWith('https://')) {
-      // Remote URL - fetch using axios
       const response = await axios.get(logoUrl, { responseType: 'arraybuffer' });
       imageBuffer = Buffer.from(response.data);
     } else {
-      // Local file path
       imageBuffer = fs.readFileSync(logoUrl);
     }
     
-    // Determine dimensions
     const dimensions = imageSize(imageBuffer);
     
     if (!dimensions || !dimensions.width || !dimensions.height) {
@@ -89,12 +83,6 @@ async function getLogoImage(logoUrl: string): Promise<LogoResult> {
 
 /**
  * Creates a PDF document with header, footer, paragraph, and table
- * @param logoUrl URL or path to the logo image
- * @param companyName Name of the company for the header
- * @param pdfData Array of content items to include in the PDF
- * @param tableData Optional table data to include after the content
- * @param options Additional options for customizing the PDF
- * @returns PDF document instance
  */
 export async function createPDFWithTable(
   logoUrl: string, 
@@ -102,7 +90,7 @@ export async function createPDFWithTable(
   pdfData: PdfContentItem[],
   tableData: TableData | null = null,
   options: PDFOptions = {}
-): Promise<typeof PDFDocument> {
+): Promise<PDFKit.PDFDocument> {
   // Create a new PDF document
   const doc = new PDFDocument({ 
     autoFirstPage: true,
@@ -127,36 +115,31 @@ export async function createPDFWithTable(
     logoResult = await getLogoImage(logoUrl);
   } catch (error) {
     console.warn('Could not load logo image:', error);
-    // Continue without logo
   }
 
   // Add header
   if (logoResult) {
-    // Calculate scaled dimensions to maintain aspect ratio
     const scaleFactor = Math.min(
       LOGO_MAX_WIDTH / logoResult.width,
       LOGO_MAX_HEIGHT / logoResult.height,
-      1 // Don't scale up small images
+      1
     );
     
     const scaledWidth = logoResult.width * scaleFactor;
     const scaledHeight = logoResult.height * scaleFactor;
     
-    // Add logo to the left side
     doc.image(logoResult.image, DEFAULT_MARGINS.left, DEFAULT_MARGINS.top / 2, {
       width: scaledWidth,
       height: scaledHeight
     });
   }
   
-  // Add company name to the right side
   doc.font(`${fontFamily}-Bold`)
      .fontSize(HEADER_COMPANY_NAME_FONT_SIZE)
      .text(companyName, 
           doc.page.width - DEFAULT_MARGINS.right - doc.widthOfString(companyName),
           DEFAULT_MARGINS.top / 2);
   
-  // Reset font and add space after header
   doc.font(fontFamily).fontSize(fontSize).moveDown(2);
   
   // Process paragraphs
@@ -178,8 +161,8 @@ export async function createPDFWithTable(
     doc.moveDown();
     
     // Add table heading
-    doc.font(`${fontFamily}-Bold`)
-       .fontSize(fontSize + 2)
+    doc.fontSize(fontSize + 2)
+       .font(`${fontFamily}-Bold`)
        .text(tableData.tableHeading, {
          align: 'center'
        });
@@ -189,12 +172,12 @@ export async function createPDFWithTable(
     const tableWidth = doc.page.width - DEFAULT_MARGINS.left - DEFAULT_MARGINS.right;
     const columnWidth = tableWidth / columnNames.length;
     
-    // Draw table header
+    // Table header
     let startX = DEFAULT_MARGINS.left;
     let startY = doc.y;
     
-    // Table header (column names)
-    doc.font(`${fontFamily}-Bold`);
+    doc.font(`${fontFamily}-Bold`).fontSize(fontSize);
+    
     columnNames.forEach(name => {
       doc.text(name, startX, startY, {
         width: columnWidth,
@@ -203,18 +186,18 @@ export async function createPDFWithTable(
       startX += columnWidth;
     });
     
-    // Draw header separator line
+    // Draw header separator
     startY = doc.y + 5;
     doc.moveTo(DEFAULT_MARGINS.left, startY)
        .lineTo(DEFAULT_MARGINS.left + tableWidth, startY)
        .stroke();
     
     // Table rows
-    doc.font(fontFamily);
+    doc.font(fontFamily).fontSize(fontSize);
     startY += 10;
     
-    tableData.items.forEach((row, rowIndex) => {
-      // Check if we need a new page for this row
+    tableData.items.forEach(row => {
+      // Check for page break
       if (startY + 20 > doc.page.height - DEFAULT_MARGINS.bottom) {
         doc.addPage();
         
@@ -240,29 +223,16 @@ export async function createPDFWithTable(
            .text(companyName, 
                 doc.page.width - DEFAULT_MARGINS.right - doc.widthOfString(companyName),
                 DEFAULT_MARGINS.top / 2);
-                
+        
         doc.font(fontFamily).fontSize(fontSize).moveDown(2);
         
-        // Reset starting position for the new page
         startY = doc.y;
       }
       
-      // Draw the row cells
+      // Draw row cells
       startX = DEFAULT_MARGINS.left;
       const rowY = startY;
-      let maxRowHeight = 0;
       
-      // First pass: calculate the maximum row height
-      columnNames.forEach(name => {
-        const cellValue = String(row[name] || '');
-        const textHeight = doc.heightOfString(cellValue, {
-          width: columnWidth,
-          align: 'center'
-        });
-        maxRowHeight = Math.max(maxRowHeight, textHeight);
-      });
-      
-      // Second pass: draw cells
       columnNames.forEach(name => {
         const cellValue = String(row[name] || '');
         doc.text(cellValue, startX, rowY, {
@@ -272,15 +242,14 @@ export async function createPDFWithTable(
         startX += columnWidth;
       });
       
+      // Move to next row position
+      startY = doc.y + 10;
+      
       // Draw row separator
-      startY = rowY + maxRowHeight + 5;
-      doc.moveTo(DEFAULT_MARGINS.left, startY)
-         .lineTo(DEFAULT_MARGINS.left + tableWidth, startY)
+      doc.moveTo(DEFAULT_MARGINS.left, startY - 5)
+         .lineTo(DEFAULT_MARGINS.left + tableWidth, startY - 5)
          .lineWidth(0.5)
          .stroke();
-      
-      // Set position for next row
-      startY += 10;
     });
   }
   
@@ -292,23 +261,21 @@ export async function createPDFWithTable(
     
     const pageBottom = doc.page.height - DEFAULT_MARGINS.bottom / 2;
     
-    // Add current date to the left
-    doc.font(fontFamily)
-       .fontSize(FOOTER_FONT_SIZE)
+    // Current date on left
+    doc.fontSize(FOOTER_FONT_SIZE)
+       .font(fontFamily)
        .text(
          new Date().toLocaleDateString(),
          DEFAULT_MARGINS.left,
          pageBottom
        );
     
-    // Add page number to the right
-    const pageText = PAGE_NUMBER_FORMAT
-      .replace('%d', String(i + 1))
-      .replace('%d', String(totalPages));
-      
+    // Page number on right
+    const pageText = `Page ${i + 1} of ${totalPages}`;
+    
     doc.text(
       pageText,
-      doc.page.width - DEFAULT_MARGINS.right - doc.widthOfString(pageText, { fontSize: FOOTER_FONT_SIZE }),
+      doc.page.width - DEFAULT_MARGINS.right - doc.widthOfString(pageText),
       pageBottom
     );
   }

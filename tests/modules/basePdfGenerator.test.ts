@@ -195,7 +195,7 @@ describe('PDF Generator', () => {
         const companyName = "NOMS Pvt Ltd";
         
         // Sample content data with paragraphs and signature
-        const pdfData = [
+        const pdfData:any = [
             {
                 attributeType: 'paragraph' as const,
                 content: 'This document demonstrates the PDF generation functionality with table support. The table below shows our monthly sales performance data.'
@@ -238,7 +238,6 @@ describe('PDF Generator', () => {
             }
         };
 
-        // Generate the PDF
         const pdfDocument = await createPDFWithTable(logoUrl, companyName, pdfData, tableData, options);
         
         // Create output path for saving
