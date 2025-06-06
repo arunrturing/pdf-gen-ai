@@ -90,13 +90,13 @@ async function getLogoImage(logoUrl: string): Promise<LogoResult> {
 /**
  * Creates a PDF document with a header, footer, content paragraphs, and table
  */
-export async function createPDF(
+export async function createPDFWithTable(
   logoUrl: string, 
   companyName: string, 
   pdfData: PdfContentItem[],
   tableData: TableData | null = null,
   options: PDFOptions = {}
-): Promise<PDFDocument> {
+): Promise<typeof PDFDocument> {
   // Create a new PDF document
   const doc = new PDFDocument({ 
     autoFirstPage: true,
@@ -115,10 +115,13 @@ export async function createPDF(
   
   doc.font(fontFamily).fontSize(fontSize);
   
-  // Track total pages for footer
-  let totalPages = 0;
+  // Track total pages and current page
+  let totalPages = 1;
+  let currentPage = 1;
+  
   doc.on('pageAdded', () => {
     totalPages++;
+    currentPage++;
   });
 
   // Get logo dimensions
@@ -188,9 +191,10 @@ export async function createPDF(
        );
     
     // Add page number to the right
+    // Note: Using the tracked currentPage and totalPages instead of accessing page properties
     const pageText = PAGE_NUMBER_FORMAT
-      .replace('%d', String(doc.page.pageNumber))
-      .replace('%d', String(totalPages || doc.page.pageNumber));
+      .replace('%d', String(currentPage))
+      .replace('%d', String(totalPages));
       
     doc.text(
       pageText,
@@ -199,13 +203,7 @@ export async function createPDF(
     );
   };
 
-  // Register events to add header and footer to each page
-  doc.on('pageAdded', () => {
-    addHeader();
-    // Footer will be added just before finalizing each page
-  });
-
-  // Add header to the first page (since pageAdded doesn't fire for the first page)
+  // Add header to the first page
   const headerHeight = addHeader();
   
   // Process content items
@@ -245,7 +243,7 @@ export async function createPDF(
   }
   
   // Add table if provided
-  if (tableData) {
+  if (tableData && tableData.items.length > 0) {
     // Add some spacing before table
     doc.moveDown();
     
@@ -259,75 +257,84 @@ export async function createPDF(
     doc.moveDown();
     
     // Get column names from first item
-    if (tableData.items && tableData.items.length > 0) {
-      const columnNames = Object.keys(tableData.items[0]);
+    const columnNames = Object.keys(tableData.items[0]);
+    
+    // Calculate column widths (equal distribution)
+    const tableWidth = doc.page.width - DEFAULT_MARGINS.left - DEFAULT_MARGINS.right;
+    const columnWidth = tableWidth / columnNames.length;
+    
+    // Draw table header
+    doc.font(`${fontFamily}-Bold`)
+       .fontSize(fontSize);
+       
+    let xPos = DEFAULT_MARGINS.left;
+    let yPos = doc.y;
+    
+    columnNames.forEach(columnName => {
+      doc.text(columnName, xPos, yPos, {
+        width: columnWidth,
+        align: 'center'
+      });
+      xPos += columnWidth;
+    });
+    
+    // Move to position after all header cells
+    doc.y = yPos + fontSize + 5;
+    
+    // Draw a line under the header
+    doc.moveTo(DEFAULT_MARGINS.left, doc.y)
+       .lineTo(doc.page.width - DEFAULT_MARGINS.right, doc.y)
+       .stroke();
+       
+    doc.moveDown(0.5);
+    
+    // Draw table rows
+    doc.font(fontFamily)
+       .fontSize(fontSize);
+       
+    tableData.items.forEach((item, index) => {
+      // Check if we're close to the bottom of the page and need a new page
+      if (doc.y + 5 * fontSize > doc.page.height - DEFAULT_MARGINS.bottom) {
+        doc.addPage();
+        addHeader();
+      }
       
-      // Calculate column widths (equal distribution)
-      const tableWidth = doc.page.width - DEFAULT_MARGINS.left - DEFAULT_MARGINS.right;
-      const columnWidth = tableWidth / columnNames.length;
+      // Draw each cell in the row
+      xPos = DEFAULT_MARGINS.left;
+      yPos = doc.y;
       
-      // Draw table header
-      doc.font(`${fontFamily}-Bold`)
-         .fontSize(fontSize);
-         
-      let xPos = DEFAULT_MARGINS.left;
       columnNames.forEach(columnName => {
-        doc.text(columnName, xPos, doc.y, {
+        const cellContent = String(item[columnName] || '');
+        doc.text(cellContent, xPos, yPos, {
           width: columnWidth,
           align: 'center'
         });
         xPos += columnWidth;
       });
       
-      // Draw a line under the header
-      doc.moveTo(DEFAULT_MARGINS.left, doc.y + 5)
-         .lineTo(doc.page.width - DEFAULT_MARGINS.right, doc.y + 5)
+      // Move to position after all header cells
+      doc.y = yPos + fontSize + 5;
+      
+      // Draw a light line under the row
+      doc.moveTo(DEFAULT_MARGINS.left, doc.y)
+         .lineTo(doc.page.width - DEFAULT_MARGINS.right, doc.y)
+         .lineWidth(0.5)
          .stroke();
          
       doc.moveDown(0.5);
-      
-      // Draw table rows
-      doc.font(fontFamily)
-         .fontSize(fontSize);
-         
-      tableData.items.forEach(item => {
-        // Save the current Y position
-        const rowY = doc.y;
-        
-        // Check if we're close to the bottom of the page and need a new page
-        if (rowY + 30 > doc.page.height - DEFAULT_MARGINS.bottom) {
-          doc.addPage();
-        }
-        
-        // Draw each cell in the row
-        xPos = DEFAULT_MARGINS.left;
-        
-        columnNames.forEach(columnName => {
-          const cellContent = String(item[columnName] || '');
-          doc.text(cellContent, xPos, doc.y, {
-            width: columnWidth,
-            align: 'center'
-          });
-          xPos += columnWidth;
-        });
-        
-        // Draw a light line under the row
-        doc.moveTo(DEFAULT_MARGINS.left, doc.y + 5)
-           .lineTo(doc.page.width - DEFAULT_MARGINS.right, doc.y + 5)
-           .lineWidth(0.5)
-           .stroke();
-           
-        doc.moveDown(0.5);
-      });
-    }
+    });
   }
   
-  // Add footer to each page (including the first page)
-  // We collect all pages first to get the total count
-  // Add footers at the end
-  doc.on('finalizePageEnd', () => {
+  // Add footer to each page
+  addFooter();
+  
+  // Register event to add header and footer to new pages
+  doc.on('pageAdded', () => {
+    addHeader();
     addFooter();
   });
 
   return doc;
 }
+
+

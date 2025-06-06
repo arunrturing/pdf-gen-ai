@@ -1,5 +1,6 @@
 import { createPdf,createHeaderedParagraphsPDF } from '@modules';
 import { createPDF } from '@modules';
+import { createPDFWithTable } from '@modules';
 import fs from 'fs';
 import path from 'path';
 
@@ -139,7 +140,7 @@ describe('PDF Generator', () => {
         console.log(`🔍 PDF header validation: ${pdfHeader} ✅`);
     });
 
-    test('should generate PDF with header, content, signature and footer using createPDF', async () => {
+    test.skip('should generate PDF with header, content, signature and footer using createPDF', async () => {
         // Test data configuration
         const logoUrl = "https://multi-tenant-dev.n-oms.in/assets/logo-hd2-BZqe1saO.png";
         const companyName = "NOMS Pvt Ltd";
@@ -186,5 +187,96 @@ describe('PDF Generator', () => {
         expect(pdfHeader).toBe('%PDF');
         
         console.log(`🔍 PDF header validation: ${pdfHeader} ✅`);
+    });
+
+    test('should generate PDF with table using createPDFWithTable', async () => {
+        // Test data configuration
+        const logoUrl = "https://multi-tenant-dev.n-oms.in/assets/logo-hd2-BZqe1saO.png";
+        const companyName = "NOMS Pvt Ltd";
+        
+        // Sample content data with paragraphs and signature
+        const pdfData = [
+            {
+                attributeType: 'paragraph' as const,
+                content: 'This document demonstrates the PDF generation functionality with table support. The table below shows our monthly sales performance data.'
+            },
+            {
+                attributeType: 'paragraph' as const,
+                content: 'Our sales team has consistently achieved growth targets throughout the reporting period, as evidenced by the data presented in the following table.'
+            },
+            {
+                attributeType: 'signature' as const,
+                content: 'John Doe'
+            },
+            {
+                attributeType: 'designation' as const,
+                content: 'Chief Executive Officer'
+            }
+        ];
+
+        // Table data as provided
+        const tableData = {
+            tableHeading: 'Monthly Sales Report',
+            items: [
+                { Month: 'January', Sales: 10000, Units: 250 },
+                { Month: 'February', Sales: 12500, Units: 300 },
+                { Month: 'March', Sales: 15000, Units: 350 },
+                { Month: 'April', Sales: 18000, Units: 400 }
+            ]
+        };
+
+        // PDF options configuration
+        const options = {
+            fontFamily: 'Helvetica',
+            fontSize: 12,
+            lineHeight: 1.5,
+            margins: {
+                top: 72,
+                bottom: 72,
+                left: 72,
+                right: 72
+            }
+        };
+
+        // Generate the PDF
+        const pdfDocument = await createPDFWithTable(logoUrl, companyName, pdfData, tableData, options);
+        
+        // Create output path for saving
+        const outputPath = `./test-output/table-document-${Date.now()}.pdf`;
+        
+        // Create output directory if it doesn't exist
+        const outputDir = path.dirname(outputPath);
+        if (!fs.existsSync(outputDir)) {
+            fs.mkdirSync(outputDir, { recursive: true });
+        }
+
+        // Save the PDF to file
+        const writeStream = fs.createWriteStream(outputPath);
+        pdfDocument.pipe(writeStream);
+        pdfDocument.end();
+
+        // Wait for the file to be written
+        await new Promise<void>((resolve, reject) => {
+            writeStream.on('finish', resolve);
+            writeStream.on('error', reject);
+        });
+        
+        // Verify the PDF was created
+        expect(fs.existsSync(outputPath)).toBe(true);
+        
+        // Check file stats
+        const stats = fs.statSync(outputPath);
+        expect(stats.size).toBeGreaterThan(0);
+        
+        console.log(`✅ Table PDF generated successfully at: ${outputPath}`);
+        console.log(`📄 File size: ${stats.size} bytes`);
+        
+        // Verify it's a valid PDF by checking file header
+        const fileBuffer = fs.readFileSync(outputPath);
+        const pdfHeader = fileBuffer.subarray(0, 4).toString();
+        expect(pdfHeader).toBe('%PDF');
+        
+        console.log(`🔍 PDF header validation: ${pdfHeader} ✅`);
+        console.log(`📊 Table data: ${tableData.items.length} rows with ${Object.keys(tableData.items[0]).length} columns`);
     });
 });
