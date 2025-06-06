@@ -111,10 +111,13 @@ async function addElegantHeader(
   
   // Add company name to the right side
   doc.font('Helvetica-Bold')
-     .fontSize(FONT_SIZES.header)
-     .text(companyName, 
-          doc.page.width - margin - doc.widthOfString(companyName, { fontSize: FONT_SIZES.header }),
-          startY);
+     .fontSize(FONT_SIZES.header);
+     
+  const companyNameWidth = doc.widthOfString(companyName);
+  
+  doc.text(companyName, 
+      doc.page.width - margin - companyNameWidth,
+      startY);
   
   return headerHeight;
 }
@@ -142,9 +145,13 @@ function addElegantFooter(
   // Add page number to the right
   const pageText = `Page ${currentPage} of ${totalPages}`;
   
+  // Set font size first, then calculate width
+  doc.fontSize(FONT_SIZES.footer);
+  const pageTextWidth = doc.widthOfString(pageText);
+  
   doc.text(
     pageText,
-    doc.page.width - margin - doc.widthOfString(pageText, { fontSize: FONT_SIZES.footer }),
+    doc.page.width - margin - pageTextWidth,
     pageBottom
   );
 }

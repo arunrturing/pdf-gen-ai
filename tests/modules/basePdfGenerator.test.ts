@@ -238,7 +238,7 @@ describe('PDF Generator', () => {
             }
         };
 
-        const pdfDocument = await createPDFWithTable(logoUrl, companyName, pdfData, tableData, options);
+        const pdfDocument = await createPDFWithTable(logoUrl, companyName, 'This document demonstrates the PDF generation functionality with table support. The table below shows our monthly sales performance data.', tableData, options);
         
         // Create output path for saving
         const outputPath = `./test-output/table-document-${Date.now()}.pdf`;
