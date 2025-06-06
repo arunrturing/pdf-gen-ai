@@ -2,419 +2,233 @@ import PDFDocument from 'pdfkit';
 import fs from 'fs';
 import path from 'path';
 import axios from 'axios';
+import { promisify } from 'util';
+import { createWriteStream } from 'fs';
 import { Buffer } from 'buffer';
-import sizeOf from 'image-size';
 
-/**
- * Options for customizing the PDF generation
- */
+// Interface definitions for type safety
 interface PDFOptions {
-  /** Font to be used in the document */
-  font?: string;
-  /** Font size for paragraphs */
-  fontSize?: number;
-  /** Font size for company name in header */
-  headerFontSize?: number;
-  /** Font size for footer text */
-  footerFontSize?: number;
-  /** Left margin in points */
-  marginLeft?: number;
-  /** Right margin in points */
-  marginRight?: number;
-  /** Top margin in points */
-  marginTop?: number;
-  /** Bottom margin in points */
-  marginBottom?: number;
-  /** Line height multiplier */
-  lineHeight?: number;
-  /** Output file path */
   outputPath?: string;
-  /** Maximum logo width in points */
-  maxLogoWidth?: number;
-  /** Maximum logo height in points */
-  maxLogoHeight?: number;
-  /** Space between header and content in points */
-  headerBottomMargin?: number;
-  /** Top offset for header position (smaller value places header higher) */
-  headerTopOffset?: number;
-  /** Date format for footer (defaults to 'MMMM DD, YYYY') */
-  dateFormat?: string;
-  /** Font size for signature */
+  fontSize?: number;
+  fontFamily?: string;
+  lineGap?: number;
+  pageMargin?: number;
+  logoWidth?: number;
+  companyNameFontSize?: number;
+  paragraphFontSize?: number;
   signatureFontSize?: number;
-  /** Font size for designation */
   designationFontSize?: number;
-  /** Space between signature and designation */
-  signatureSpacing?: number;
 }
 
-/**
- * Result of logo processing with dimensions
- */
-interface LogoResult {
-  /** Image data buffer */
-  imageData: Buffer;
-  /** Original width of the logo */
-  width: number;
-  /** Original height of the logo */
-  height: number;
-}
-
-/**
- * Signature information to be added to the PDF
- */
 interface SignatureInfo {
-  /** Name of the person signing */
   name: string;
-  /** Designation or title of the person */
   designation: string;
 }
 
-/**
- * Creates a PDF document with header, footer, paragraphs, and signature
- * @param logoUrl URL of the logo image (can be a public S3 URL)
- * @param companyName Name of the company to display in the header
- * @param paragraphs Array of strings, each representing a paragraph
- * @param signatureInfo Optional signature and designation information
- * @param options Configuration options for the PDF
- * @returns Buffer containing the PDF data
- */
-export const createCompleteDocumentPDF = async (
-  logoUrl: string,
-  companyName: string,
-  paragraphs: string[],
-  signatureInfo?: SignatureInfo,
-  options: PDFOptions = {}
-): Promise<Buffer> => {
-  // Set default options
-  const {
-    font = 'Helvetica',
-    fontSize = 12,
-    headerFontSize = 18,
-    footerFontSize = 10,
-    marginLeft = 72, // 1 inch
-    marginRight = 72, // 1 inch
-    marginTop = 72, // 1 inch
-    marginBottom = 72, // 1 inch
-    lineHeight = 1.5,
-    outputPath,
-    maxLogoWidth = 150,
-    maxLogoHeight = 50,
-    headerBottomMargin = 30,
-    headerTopOffset = 20,
-    dateFormat = 'MMMM DD, YYYY',
-    signatureFontSize = 12,
-    designationFontSize = 10,
-    signatureSpacing = 8
-  } = options;
-
-  // Calculate the content width
-  const pageWidth = 612; // Default letter size width in points
-  const contentWidth = pageWidth - marginLeft - marginRight;
-
-  // Fetch and process logo
-  let logoResult: LogoResult;
-  try {
-    logoResult = await fetchLogo(logoUrl);
-  } catch (error) {
-    throw new Error(`Failed to fetch logo: ${error instanceof Error ? error.message : String(error)}`);
-  }
-
-  return new Promise((resolve, reject) => {
-    try {
-      // Create a document
-      const doc = new PDFDocument({
-        margins: {
-          top: marginTop,
-          bottom: marginBottom,
-          left: marginLeft,
-          right: marginRight
-        },
-        autoFirstPage: true
-      });
-
-      // Buffer to collect PDF data
-      const chunks: Buffer[] = [];
-      
-      // Handle document data chunks
-      doc.on('data', (chunk) => {
-        chunks.push(chunk);
-      });
-
-      // Handle document end
-      doc.on('end', () => {
-        resolve(Buffer.concat(chunks));
-      });
-
-      // Handle errors during PDF generation
-      doc.on('error', (err) => {
-        reject(err);
-      });
-
-      // If outputPath is provided, save to file
-      if (outputPath) {
-        const dirPath = path.dirname(outputPath);
-        
-        // Ensure output directory exists
-        if (!fs.existsSync(dirPath)) {
-          fs.mkdirSync(dirPath, { recursive: true });
-        }
-        
-        // Create write stream for output file
-        const writeStream = fs.createWriteStream(outputPath);
-        doc.pipe(writeStream);
-        
-        writeStream.on('error', (err) => {
-          reject(err);
-        });
-      }
-
-      // Add page numbers and date to each page
-      setupFooter(doc, footerFontSize, dateFormat);
-
-      // Position the header at the specified top offset
-      const headerY = doc.page.margins.top - marginTop + headerTopOffset;
-
-      // Add header with logo and company name at the adjusted position
-      addHeaderWithLogo(doc, logoResult, companyName, {
-        contentWidth,
-        maxLogoWidth,
-        maxLogoHeight,
-        headerFontSize,
-        font,
-        y: headerY
-      });
-
-      // Reset cursor position to top margin plus header height plus spacing
-      const logoHeight = Math.min(logoResult.height, maxLogoHeight);
-      const effectiveHeaderHeight = Math.max(logoHeight, headerFontSize);
-      doc.y = headerY + effectiveHeaderHeight + headerBottomMargin;
-
-      // Set font for body content
-      doc.font(font)
-         .fontSize(fontSize);
-
-      // Add paragraphs with left alignment
-      paragraphs.forEach((paragraph) => {
-        if (paragraph && paragraph.trim()) {
-          doc.text(paragraph, {
-            width: contentWidth,
-            align: 'left',
-            indent: 0,
-            lineGap: (fontSize * lineHeight) - fontSize
-          });
-          
-          // Add space between paragraphs
-          doc.moveDown();
-        }
-      });
-
-      // Add signature and designation if provided
-      if (signatureInfo) {
-        doc.moveDown(3); // Space before signature
-        
-        // Add signature
-        doc.font(`${font}-Bold`)
-          .fontSize(signatureFontSize)
-          .text(signatureInfo.name, {
-            width: contentWidth,
-            align: 'right'
-          });
-        
-        // Add designation
-        doc.font(font)
-          .fontSize(designationFontSize)
-          .moveDown(signatureSpacing / designationFontSize)
-          .text(signatureInfo.designation, {
-            width: contentWidth,
-            align: 'right'
-          });
-      }
-
-      // Finalize the document
-      doc.end();
-    } catch (error) {
-      reject(error);
-    }
-  });
+// Default options
+const DEFAULT_OPTIONS: PDFOptions = {
+  outputPath: './output.pdf',
+  fontSize: 12,
+  fontFamily: 'Helvetica',
+  lineGap: 5,
+  pageMargin: 50,
+  logoWidth: 100,
+  companyNameFontSize: 16,
+  paragraphFontSize: 12,
+  signatureFontSize: 12,
+  designationFontSize: 10
 };
 
 /**
- * Fetches a logo from a URL and returns it with its dimensions
- * @param logoUrl URL of the logo to fetch
- * @returns Promise resolving to logo data and dimensions
+ * Safely fetches an image from a URL and returns it as a buffer
+ * Using proper error handling and timeout to prevent Zlib stack issues
  */
-async function fetchLogo(logoUrl: string): Promise<LogoResult> {
+async function fetchImageBuffer(imageUrl: string): Promise<Buffer> {
   try {
-    const response = await axios.get(logoUrl, {
-      responseType: 'arraybuffer'
+    // Set a reasonable timeout to prevent hanging
+    const response = await axios.get(imageUrl, {
+      responseType: 'arraybuffer',
+      timeout: 10000
     });
     
-    const imageData = Buffer.from(response.data);
-    
-    // Use image-size library to get dimensions
-    try {
-      const dimensions = sizeOf(imageData);
-      if (dimensions.width && dimensions.height) {
-        return { 
-          imageData,
-          width: dimensions.width,
-          height: dimensions.height 
-        };
-      }
-    } catch (sizeError) {
-      console.warn('Could not determine image size, using fallback dimensions');
-    }
-    
-    // Fallback dimensions
-    return { 
-      imageData,
-      width: 100,
-      height: 50 
-    };
+    return Buffer.from(response.data);
   } catch (error) {
-    throw new Error(`Error fetching logo: ${error instanceof Error ? error.message : String(error)}`);
+    console.error('Error fetching image:', error.message);
+    throw new Error(`Failed to fetch image: ${error.message}`);
   }
 }
 
 /**
- * Adds a header with logo and company name to the document
+ * Create directory if it doesn't exist
  */
-function addHeaderWithLogo(
-  doc: PDFKit.PDFDocument,
-  logoResult: LogoResult,
+async function ensureDirectoryExists(filePath: string): Promise<void> {
+  const dirname = path.dirname(filePath);
+  const mkdir = promisify(fs.mkdir);
+  
+  try {
+    await mkdir(dirname, { recursive: true });
+  } catch (error) {
+    // Directory already exists or cannot be created
+    if (error.code !== 'EEXIST') {
+      throw error;
+    }
+  }
+}
+
+/**
+ * Create a PDF with logo, company name, paragraph and signature
+ */
+async function createStructuredPDF(
+  logoUrl: string,
   companyName: string,
-  options: {
-    contentWidth: number;
-    maxLogoWidth: number;
-    maxLogoHeight: number;
-    headerFontSize: number;
-    font: string;
-    y: number;
-  }
-): void {
-  const { imageData, width: originalWidth, height: originalHeight } = logoResult;
-  const { contentWidth, maxLogoWidth, maxLogoHeight, headerFontSize, font, y } = options;
-
-  // Scale logo to fit within maximum dimensions while preserving aspect ratio
-  let logoWidth = originalWidth;
-  let logoHeight = originalHeight;
+  paragraphText: string,
+  signatureInfo: SignatureInfo,
+  options: PDFOptions = {}
+): Promise<Buffer> {
+  // Merge default options with provided options
+  const mergedOptions = { ...DEFAULT_OPTIONS, ...options };
   
-  if (logoWidth > maxLogoWidth) {
-    const scaleFactor = maxLogoWidth / logoWidth;
-    logoWidth = maxLogoWidth;
-    logoHeight = originalHeight * scaleFactor;
-  }
-  
-  if (logoHeight > maxLogoHeight) {
-    const scaleFactor = maxLogoHeight / logoHeight;
-    logoHeight = maxLogoHeight;
-    logoWidth = logoWidth * scaleFactor;
-  }
-
-  // Add logo on the left at the specified y position
-  doc.image(imageData, doc.page.margins.left, y, {
-    width: logoWidth,
-    height: logoHeight
+  return new Promise(async (resolve, reject) => {
+    try {
+      // Create a new document with better memory handling
+      const doc = new PDFDocument({
+        autoFirstPage: true,
+        bufferPages: true, // Buffer pages for better memory management
+        compress: true,    // Use compression but with proper error handling
+        size: 'A4',
+        margin: mergedOptions.pageMargin
+      });
+      
+      // Collect the PDF data chunks
+      const chunks: Buffer[] = [];
+      
+      // Handle data event - collect chunks instead of piping directly
+      doc.on('data', (chunk) => {
+        chunks.push(chunk);
+      });
+      
+      // When the document is ended, concatenate all chunks into a single buffer
+      doc.on('end', () => {
+        const result = Buffer.concat(chunks);
+        resolve(result);
+      });
+      
+      // Handle any errors during PDF generation
+      doc.on('error', (err) => {
+        reject(new Error(`PDF generation error: ${err.message}`));
+      });
+      
+      // Set default font and size
+      doc.font(mergedOptions.fontFamily)
+         .fontSize(mergedOptions.fontSize);
+         
+      // Fetch and add logo image if provided
+      if (logoUrl) {
+        try {
+          const imageBuffer = await fetchImageBuffer(logoUrl);
+          
+          // Add logo to top left
+          doc.image(imageBuffer, 
+                    mergedOptions.pageMargin, 
+                    mergedOptions.pageMargin, 
+                   { width: mergedOptions.logoWidth });
+                   
+          // Move down from the logo
+          doc.moveDown(2);
+        } catch (logoError) {
+          console.warn(`Logo could not be added: ${logoError.message}. Continuing without logo.`);
+          // Continue without logo rather than failing the entire PDF
+        }
+      }
+      
+      // Add company name
+      doc.fontSize(mergedOptions.companyNameFontSize)
+         .font(`${mergedOptions.fontFamily}-Bold`)
+         .text(companyName, 
+               mergedOptions.pageMargin + (mergedOptions.logoWidth || 0) + 20, 
+               mergedOptions.pageMargin, 
+               { align: 'left' });
+      
+      // Reset font and add paragraph with proper spacing
+      doc.moveDown(3)
+         .font(mergedOptions.fontFamily)
+         .fontSize(mergedOptions.paragraphFontSize)
+         .text(paragraphText, {
+           align: 'left',
+           width: doc.page.width - (2 * mergedOptions.pageMargin),
+           lineGap: mergedOptions.lineGap
+         });
+      
+      // Add space for signature
+      doc.moveDown(4);
+      
+      // Add signature and designation
+      doc.fontSize(mergedOptions.signatureFontSize)
+         .text(signatureInfo.name, {
+           align: 'right',
+           width: doc.page.width - (2 * mergedOptions.pageMargin),
+         })
+         .fontSize(mergedOptions.designationFontSize)
+         .text(signatureInfo.designation, {
+           align: 'right',
+           width: doc.page.width - (2 * mergedOptions.pageMargin),
+         });
+      
+      // Finalize the PDF
+      // Using a try/catch to handle any zlib errors during finalization
+      try {
+        doc.end();
+      } catch (endError) {
+        reject(new Error(`Error finalizing PDF: ${endError.message}`));
+      }
+      
+    } catch (error) {
+      reject(new Error(`Error in PDF creation: ${error.message}`));
+    }
   });
-
-  // Add company name on the right, vertically aligned with the logo
-  doc.font(`${font}-Bold`)
-     .fontSize(headerFontSize)
-     .text(companyName, 
-           doc.page.margins.left + logoWidth + 10, 
-           y + (logoHeight / 2) - (headerFontSize / 2), 
-           {
-             width: contentWidth - logoWidth - 10,
-             align: 'right'
-           });
 }
 
 /**
- * Sets up footer with page number and date on each page
+ * Create and save a PDF file to disk
  */
-function setupFooter(
-  doc: PDFKit.PDFDocument, 
-  footerFontSize: number,
-  dateFormat: string
-): void {
-  // Format the current date
-  const currentDate = formatDate(new Date(), dateFormat);
-  
-  // Add page numbers and date to each page
-  const pageCount = { count: 0 };
-  
-  doc.on('pageAdded', () => {
-    pageCount.count++;
-    addFooter(doc, currentDate, pageCount.count, footerFontSize);
-  });
-  
-  // Initialize the first page
-  pageCount.count = 1;
-  addFooter(doc, currentDate, pageCount.count, footerFontSize);
-}
-
-/**
- * Adds a footer with date and page number to the current page
- */
-function addFooter(
-  doc: PDFKit.PDFDocument, 
-  dateText: string, 
-  pageNumber: number,
-  footerFontSize: number
-): void {
-  const originalY = doc.y; // Save current position
-  
-  // Calculate footer position
-  const footerY = doc.page.height - doc.page.margins.bottom + 20;
-  
-  // Add date on the left
-  doc.fontSize(footerFontSize)
-     .text(
-       dateText,
-       doc.page.margins.left,
-       footerY,
-       { align: 'left' }
-     );
-  
-  // Add page number on the right
-  doc.fontSize(footerFontSize)
-     .text(
-       `Page ${pageNumber}`,
-       doc.page.width - doc.page.margins.right,
-       footerY,
-       { align: 'right' }
-     );
-  
-  doc.y = originalY; // Restore position
-}
-
-/**
- * Formats a date according to the specified format
- * Simple implementation for common date format without external dependencies
- */
-function formatDate(date: Date, format: string): string {
-  const months = [
-    'January', 'February', 'March', 'April', 'May', 'June',
-    'July', 'August', 'September', 'October', 'November', 'December'
-  ];
-  
-  const day = date.getDate();
-  const month = months[date.getMonth()];
-  const year = date.getFullYear();
-  
-  let result = format;
-  
-  // Replace month name
-  result = result.replace('MMMM', month);
-  
-  // Replace day with leading zero if needed
-  result = result.replace('DD', day < 10 ? `0${day}` : `${day}`);
-  
-  // Replace day without leading zero
-  result = result.replace('D', `${day}`);
-  
-  // Replace year
-  result = result.replace('YYYY', `${year}`);
-  
-  return result;
+async function createAndSavePDF(
+  logoUrl: string,
+  companyName: string,
+  paragraphText: string,
+  signatureInfo: SignatureInfo,
+  outputPath: string,
+  options: PDFOptions = {}
+): Promise<string> {
+  try {
+    // Ensure the output directory exists
+    await ensureDirectoryExists(outputPath);
+    
+    // Generate the PDF buffer
+    const pdfBuffer = await createStructuredPDF(
+      logoUrl,
+      companyName,
+      paragraphText,
+      signatureInfo,
+      options
+    );
+    
+    // Write the buffer to a file
+    return new Promise((resolve, reject) => {
+      const writeStream = createWriteStream(outputPath);
+      
+      writeStream.on('error', (err) => {
+        reject(new Error(`Error writing PDF to disk: ${err.message}`));
+      });
+      
+      writeStream.on('finish', () => {
+        resolve(outputPath);
+      });
+      
+      // Write the buffer to the stream and end the stream
+      writeStream.write(pdfBuffer);
+      writeStream.end();
+    });
+  } catch (error) {
+    throw new Error(`Failed to create and save PDF: ${error.message}`);
+  }
 }
