@@ -2,7 +2,6 @@ import PDFDocument from 'pdfkit';
 import * as fs from 'fs';
 import * as path from 'path';
 import axios, { AxiosResponse } from 'axios';
-import { promisify } from 'util';
 
 // Define precise interfaces for type safety
 export interface PDFOptions {
@@ -10,6 +9,7 @@ export interface PDFOptions {
   margin?: number;
   headerHeight?: number;
   footerHeight?: number;
+  logoWidth?: number;
   fontSize?: {
     header?: number;
     text?: number;
@@ -38,9 +38,10 @@ export async function createPDF(
   const margin = options.margin ?? 50;
   const headerHeight = options.headerHeight ?? 80;
   const footerHeight = options.footerHeight ?? 50;
+  const logoWidth = options.logoWidth ?? 70; // Reduced from 100 to 70
   
   const fontSize = {
-    header: options.fontSize?.header ?? 16,
+    header: options.fontSize?.header ?? 14, // Reduced from 16 to 14
     text: options.fontSize?.text ?? 12,
     footer: options.fontSize?.footer ?? 10,
     signature: options.fontSize?.signature ?? 12,
@@ -85,10 +86,10 @@ export async function createPDF(
       const generateDocument = async (): Promise<void> => {
         try {
           // Add header with logo (if provided) and company name
-          await addHeader(doc, logoUrl, companyName, margin, fontSize.header);
+          await addHeader(doc, logoUrl, companyName, margin, logoWidth, fontSize.header);
           
-          // Add content paragraph
-          addContent(doc, paragraphText, margin, headerHeight, fontSize.text);
+          // Add content paragraph with increased spacing from header
+          addContent(doc, paragraphText, margin, headerHeight + 30, fontSize.text);
           
           // Add signature and designation
           addSignature(doc, signatureInfo, margin, fontSize.signature, fontSize.designation);
@@ -130,30 +131,40 @@ async function addHeader(
   logoUrl: string | null,
   companyName: string,
   margin: number,
+  logoWidth: number,
   fontSize: number
 ): Promise<void> {
   // Add logo if URL is provided
+  let logoHeight = 0;
+  
   if (logoUrl) {
     try {
       const logoBuffer = await fetchLogo(logoUrl);
       
-      // Draw the logo at the top left
+      // Draw the logo at the top left with reduced size
       doc.image(logoBuffer, margin, margin, { 
-        width: 100 // Adjust logo width as needed
+        width: logoWidth
       });
+      
+      // Estimate logo height based on the width (assuming 1:1 aspect ratio as a fallback)
+      logoHeight = logoWidth;
     } catch (error) {
       // Continue without logo instead of failing
       console.warn(`Could not add logo: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
-  // Add company name at the top right or center if no logo
-  const companyNameX = logoUrl ? margin + 120 : margin;
+  // Add company name next to logo or at margin if no logo
+  const companyNameX = logoUrl ? margin + logoWidth + 10 : margin;
+  
+  // Align vertically with the logo
+  const companyNameY = margin + (logoHeight ? (logoHeight / 2 - fontSize / 2) : 0);
+  
   doc.font('Helvetica-Bold')
      .fontSize(fontSize)
      .text(companyName, 
            companyNameX, 
-           margin, 
+           companyNameY, 
            { align: 'left' });
 
   // Reset font for content
@@ -171,7 +182,7 @@ function addContent(
   headerHeight: number,
   fontSize: number
 ): void {
-  const contentY = margin + headerHeight + 20;
+  const contentY = margin + headerHeight;
   
   doc.font('Helvetica')
      .fontSize(fontSize)
