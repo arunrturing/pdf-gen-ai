@@ -7,7 +7,10 @@
       "Bash(git push:*)",
       "Bash(npm test)",
       "Bash(npm run lint)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(npx ts-node:*)",
+      "Bash(rm:*)",
+      "Bash(npx tsc:*)"
     ],
     "deny": []
   }

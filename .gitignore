@@ -138,6 +138,9 @@ dist
 # Build output
 dist/
 coverage/
+test-output/
+output/
+*.pdf
 
 # OS specific
 .DS_Store
