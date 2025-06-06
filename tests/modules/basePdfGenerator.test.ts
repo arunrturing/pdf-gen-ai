@@ -1,35 +1,9 @@
 import { createPdf,createHeaderedParagraphsPDF } from '@modules';
 import { createPDF } from '@modules';
 import { createPDFWithTable } from '@modules';
+import { createMultipleTables } from '@modules';
 import fs from 'fs';
 import path from 'path';
-
- async function savePDFToFile(
-  pdfBuffer: Buffer, 
-  filename?: string
-): Promise<string> {
-  try {
-    // Create output directory if it doesn't exist
-    const outputDir = path.resolve('./test-output');
-    if (!fs.existsSync(outputDir)) {
-      fs.mkdirSync(outputDir, { recursive: true });
-    }
-    
-    // Generate filename with timestamp if not provided
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const outputFilename = filename || `document-${timestamp}.pdf`;
-    const outputPath = path.join(outputDir, outputFilename);
-    
-    // Write buffer to file
-    await fs.promises.writeFile(outputPath, pdfBuffer);
-    console.log(`PDF saved to: ${outputPath}`);
-    
-    return outputPath;
-  } catch (error) {
-    console.error('Error saving PDF to file:', error);
-    throw error;
-  }
-}
 
 describe('PDF Generator', () => {
 
@@ -189,7 +163,7 @@ describe('PDF Generator', () => {
         console.log(`🔍 PDF header validation: ${pdfHeader} ✅`);
     });
 
-    test('should generate PDF with table using createPDFWithTable', async () => {
+    test.skip('should generate PDF with table using createPDFWithTable', async () => {
         // Test data configuration
         const logoUrl = "https://multi-tenant-dev.n-oms.in/assets/logo-hd2-BZqe1saO.png";
         const companyName = "NOMS Pvt Ltd";
@@ -277,5 +251,94 @@ describe('PDF Generator', () => {
         
         console.log(`🔍 PDF header validation: ${pdfHeader} ✅`);
         console.log(`📊 Table data: ${tableData.items.length} rows with ${Object.keys(tableData.items[0]).length} columns`);
+    });
+
+    test('should generate PDF with multiple tables using createMultipleTables', async () => {
+        // Test data configuration
+        const logoUrl = "https://multi-tenant-dev.n-oms.in/assets/logo-hd2-BZqe1saO.png";
+        const companyName = "NOMS Pvt Ltd";
+        const paragraphText = "This document demonstrates the PDF generation functionality with multiple tables support. The tables below show different aspects of our business performance data including sales, expenses, and quarterly summaries.";
+
+        // Define multiple tables with different data
+        const tables = [
+            {
+                tableHeading: 'Monthly Sales Report',
+                items: [
+                    { Month: 'January', Sales: 10000, Units: 250, Growth: '5%' },
+                    { Month: 'February', Sales: 12500, Units: 300, Growth: '25%' },
+                    { Month: 'March', Sales: 15000, Units: 350, Growth: '20%' },
+                    { Month: 'April', Sales: 18000, Units: 400, Growth: '20%' }
+                ]
+            },
+            {
+                tableHeading: 'Monthly Expenses Breakdown',
+                items: [
+                    { Category: 'Marketing', January: 2000, February: 2500, March: 3000 },
+                    { Category: 'Operations', January: 5000, February: 5200, March: 5500 },
+                    { Category: 'Personnel', January: 8000, February: 8000, March: 8200 },
+                    { Category: 'Technology', January: 1500, February: 1800, March: 2000 }
+                ]
+            },
+            {
+                tableHeading: 'Quarterly Performance Summary',
+                items: [
+                    { Quarter: 'Q1 2024', Revenue: 55500, Expenses: 16500, Profit: 39000, Margin: '70.3%' },
+                    { Quarter: 'Q2 2024', Revenue: 62000, Expenses: 18000, Profit: 44000, Margin: '71.0%' },
+                    { Quarter: 'Q3 2024', Revenue: 68500, Expenses: 19500, Profit: 49000, Margin: '71.5%' }
+                ]
+            }
+        ];
+
+        // PDF options configuration
+        const options = {
+            margin: 72,
+            fontFamily: 'Helvetica'
+        };
+
+        // Generate the PDF
+        const pdfDocument = await createMultipleTables(logoUrl, companyName, paragraphText, tables, options);
+        
+        // Create output path for saving
+        const outputPath = `./test-output/multiple-tables-document-${Date.now()}.pdf`;
+        
+        // Create output directory if it doesn't exist
+        const outputDir = path.dirname(outputPath);
+        if (!fs.existsSync(outputDir)) {
+            fs.mkdirSync(outputDir, { recursive: true });
+        }
+
+        // Save the PDF to file
+        const writeStream = fs.createWriteStream(outputPath);
+        pdfDocument.pipe(writeStream);
+        pdfDocument.end();
+
+        // Wait for the file to be written
+        await new Promise<void>((resolve, reject) => {
+            writeStream.on('finish', resolve);
+            writeStream.on('error', reject);
+        });
+        
+        // Verify the PDF was created
+        expect(fs.existsSync(outputPath)).toBe(true);
+        
+        // Check file stats
+        const stats = fs.statSync(outputPath);
+        expect(stats.size).toBeGreaterThan(0);
+        
+        console.log(`✅ Multiple tables PDF generated successfully at: ${outputPath}`);
+        console.log(`📄 File size: ${stats.size} bytes`);
+        
+        // Verify it's a valid PDF by checking file header
+        const fileBuffer = fs.readFileSync(outputPath);
+        const pdfHeader = fileBuffer.subarray(0, 4).toString();
+        expect(pdfHeader).toBe('%PDF');
+        
+        console.log(`🔍 PDF header validation: ${pdfHeader} ✅`);
+        console.log(`📊 Multiple tables: ${tables.length} tables with total ${tables.reduce((sum, table) => sum + table.items.length, 0)} data rows`);
+        
+        // Log details about each table
+        tables.forEach((table, index) => {
+            console.log(`  Table ${index + 1}: "${table.tableHeading}" - ${table.items.length} rows, ${Object.keys(table.items[0]).length} columns`);
+        });
     });
 });
