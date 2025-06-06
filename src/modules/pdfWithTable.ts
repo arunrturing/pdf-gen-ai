@@ -6,43 +6,34 @@ import { imageSize } from 'image-size';
 import { Buffer } from 'buffer';
 
 // Constants
-const DEFAULT_FONT = 'Helvetica';
-const DEFAULT_FONT_SIZE = 12;
-const DEFAULT_LINE_HEIGHT = 1.5;
-const DEFAULT_MARGINS = {
-  top: 72,
-  bottom: 72,
-  left: 72,
-  right: 72
+const DEFAULT_MARGIN = 72;
+const FONT_SIZES = {
+  header: 16,
+  text: 12,
+  tableHeading: 14,
+  tableHeader: 12,
+  tableCell: 11,
+  footer: 10
 };
-const HEADER_COMPANY_NAME_FONT_SIZE = 16;
-const LOGO_MAX_HEIGHT = 50;
+const SPACING = {
+  headerToContent: 30,
+  paragraphToTable: 20,
+  tableRowSpacing: 5
+};
 const LOGO_MAX_WIDTH = 150;
-const FOOTER_FONT_SIZE = 10;
+const LOGO_MAX_HEIGHT = 50;
+const TABLE_LINE_WIDTH = 0.5;
 
 // Interfaces
 interface PDFOptions {
+  margin?: number;
   fontFamily?: string;
-  fontSize?: number;
-  lineHeight?: number;
-  margins?: {
-    top?: number;
-    bottom?: number;
-    left?: number;
-    right?: number;
-  };
-  outputDir?: string;
 }
 
 interface LogoResult {
   image: Buffer;
   width: number;
   height: number;
-}
-
-interface PdfContentItem {
-  attributeType: 'paragraph';
-  content: string;
 }
 
 interface TableData {
@@ -82,43 +73,21 @@ async function getLogoImage(logoUrl: string): Promise<LogoResult> {
 }
 
 /**
- * Creates a PDF document with header, footer, paragraph, and table
+ * Adds an elegant header with logo and company name
  */
-export async function createPDFWithTable(
-  logoUrl: string, 
-  companyName: string, 
-  pdfData: PdfContentItem[],
-  tableData: TableData | null = null,
-  options: PDFOptions = {}
-): Promise<PDFKit.PDFDocument> {
-  // Create a new PDF document
-  const doc = new PDFDocument({ 
-    autoFirstPage: true,
-    margins: {
-      top: options.margins?.top || DEFAULT_MARGINS.top,
-      bottom: options.margins?.bottom || DEFAULT_MARGINS.bottom,
-      left: options.margins?.left || DEFAULT_MARGINS.left,
-      right: options.margins?.right || DEFAULT_MARGINS.right
-    }
-  });
-
-  // Set default font and size
-  const fontFamily = options.fontFamily || DEFAULT_FONT;
-  const fontSize = options.fontSize || DEFAULT_FONT_SIZE;
-  const lineHeight = options.lineHeight || DEFAULT_LINE_HEIGHT;
+async function addElegantHeader(
+  doc: PDFKit.PDFDocument,
+  logoUrl: string,
+  companyName: string,
+  margin: number,
+  startY: number
+): Promise<number> {
+  let headerHeight = FONT_SIZES.header;
   
-  doc.font(fontFamily).fontSize(fontSize);
-  
-  // Get logo dimensions
-  let logoResult: LogoResult | null = null;
   try {
-    logoResult = await getLogoImage(logoUrl);
-  } catch (error) {
-    console.warn('Could not load logo image:', error);
-  }
-
-  // Add header
-  if (logoResult) {
+    const logoResult = await getLogoImage(logoUrl);
+    
+    // Calculate scaled dimensions to maintain aspect ratio
     const scaleFactor = Math.min(
       LOGO_MAX_WIDTH / logoResult.width,
       LOGO_MAX_HEIGHT / logoResult.height,
@@ -128,157 +97,233 @@ export async function createPDFWithTable(
     const scaledWidth = logoResult.width * scaleFactor;
     const scaledHeight = logoResult.height * scaleFactor;
     
-    doc.image(logoResult.image, DEFAULT_MARGINS.left, DEFAULT_MARGINS.top / 2, {
+    // Add logo to the left side
+    doc.image(logoResult.image, margin, startY, {
       width: scaledWidth,
       height: scaledHeight
     });
+    
+    headerHeight = Math.max(headerHeight, scaledHeight);
+  } catch (error) {
+    console.warn('Could not load logo image:', error);
+    // Continue without logo
   }
   
-  doc.font(`${fontFamily}-Bold`)
-     .fontSize(HEADER_COMPANY_NAME_FONT_SIZE)
+  // Add company name to the right side
+  doc.font('Helvetica-Bold')
+     .fontSize(FONT_SIZES.header)
      .text(companyName, 
-          doc.page.width - DEFAULT_MARGINS.right - doc.widthOfString(companyName),
-          DEFAULT_MARGINS.top / 2);
+          doc.page.width - margin - doc.widthOfString(companyName, { fontSize: FONT_SIZES.header }),
+          startY);
   
-  doc.font(fontFamily).fontSize(fontSize).moveDown(2);
+  return headerHeight;
+}
+
+/**
+ * Adds an elegant footer with page numbers
+ */
+function addElegantFooter(
+  doc: PDFKit.PDFDocument,
+  currentPage: number,
+  totalPages: number,
+  margin: number
+): void {
+  const pageBottom = doc.page.height - margin / 2;
   
-  // Process paragraphs
-  for (const item of pdfData) {
-    if (item.attributeType === 'paragraph') {
-      doc.font(fontFamily)
-         .fontSize(fontSize)
-         .text(item.content, {
-            align: 'left',
-            lineGap: (lineHeight - 1) * fontSize,
-            width: doc.page.width - DEFAULT_MARGINS.left - DEFAULT_MARGINS.right
-         });
-      doc.moveDown();
-    }
+  // Add current date to the left
+  doc.font('Helvetica')
+     .fontSize(FONT_SIZES.footer)
+     .text(
+       new Date().toLocaleDateString(),
+       margin,
+       pageBottom
+     );
+  
+  // Add page number to the right
+  const pageText = `Page ${currentPage} of ${totalPages}`;
+  
+  doc.text(
+    pageText,
+    doc.page.width - margin - doc.widthOfString(pageText, { fontSize: FONT_SIZES.footer }),
+    pageBottom
+  );
+}
+
+/**
+ * Adds a professional table to the document
+ */
+function addProfessionalTable(
+  doc: PDFKit.PDFDocument,
+  tableData: TableData,
+  startY: number,
+  margin: number
+): number {
+  if (!tableData || !tableData.items || tableData.items.length === 0) {
+    return 0;
   }
   
-  // Add table
-  if (tableData && tableData.items.length > 0) {
-    doc.moveDown();
+  let currentY = startY;
+  
+  // Add table heading
+  doc.font('Helvetica-Bold')
+     .fontSize(FONT_SIZES.tableHeading)
+     .text(tableData.tableHeading, margin, currentY, {
+       align: 'center',
+       width: doc.page.width - 2 * margin
+     });
+  
+  currentY = doc.y + SPACING.tableRowSpacing;
+  
+  // Get column names and calculate column widths
+  const columnNames = Object.keys(tableData.items[0]);
+  const tableWidth = doc.page.width - 2 * margin;
+  const columnWidth = tableWidth / columnNames.length;
+  
+  // Draw table header
+  doc.font('Helvetica-Bold')
+     .fontSize(FONT_SIZES.tableHeader);
+  
+  let xPos = margin;
+  columnNames.forEach(name => {
+    doc.text(name, xPos, currentY, {
+      width: columnWidth,
+      align: 'center'
+    });
+    xPos += columnWidth;
+  });
+  
+  currentY = doc.y + SPACING.tableRowSpacing;
+  
+  // Draw header separator
+  doc.moveTo(margin, currentY)
+     .lineTo(margin + tableWidth, currentY)
+     .stroke();
+  
+  currentY += SPACING.tableRowSpacing;
+  
+  // Draw table rows
+  doc.font('Helvetica')
+     .fontSize(FONT_SIZES.tableCell);
+  
+  tableData.items.forEach(row => {
+    // Check for page break
+    if (currentY + 20 > doc.page.height - margin) {
+      doc.addPage();
+      currentY = margin;
+    }
     
-    // Add table heading
-    doc.fontSize(fontSize + 2)
-       .font(`${fontFamily}-Bold`)
-       .text(tableData.tableHeading, {
-         align: 'center'
-       });
-    doc.moveDown();
+    // Draw row cells
+    xPos = margin;
+    let rowTextHeight = 0;
     
-    const columnNames = Object.keys(tableData.items[0]);
-    const tableWidth = doc.page.width - DEFAULT_MARGINS.left - DEFAULT_MARGINS.right;
-    const columnWidth = tableWidth / columnNames.length;
-    
-    // Table header
-    let startX = DEFAULT_MARGINS.left;
-    let startY = doc.y;
-    
-    doc.font(`${fontFamily}-Bold`).fontSize(fontSize);
-    
+    // First pass: calculate max height
     columnNames.forEach(name => {
-      doc.text(name, startX, startY, {
+      const cellValue = String(row[name] || '');
+      const textHeight = doc.heightOfString(cellValue, {
         width: columnWidth,
         align: 'center'
       });
-      startX += columnWidth;
+      rowTextHeight = Math.max(rowTextHeight, textHeight);
     });
     
-    // Draw header separator
-    startY = doc.y + 5;
-    doc.moveTo(DEFAULT_MARGINS.left, startY)
-       .lineTo(DEFAULT_MARGINS.left + tableWidth, startY)
+    // Second pass: draw text
+    columnNames.forEach(name => {
+      const cellValue = String(row[name] || '');
+      doc.text(cellValue, xPos, currentY, {
+        width: columnWidth,
+        align: 'center'
+      });
+      xPos += columnWidth;
+    });
+    
+    currentY = doc.y + SPACING.tableRowSpacing;
+    
+    // Draw row separator
+    doc.lineWidth(TABLE_LINE_WIDTH)
+       .moveTo(margin, currentY)
+       .lineTo(margin + tableWidth, currentY)
        .stroke();
     
-    // Table rows
-    doc.font(fontFamily).fontSize(fontSize);
-    startY += 10;
-    
-    tableData.items.forEach(row => {
-      // Check for page break
-      if (startY + 20 > doc.page.height - DEFAULT_MARGINS.bottom) {
-        doc.addPage();
-        
-        // Add header to new page
-        if (logoResult) {
-          const scaleFactor = Math.min(
-            LOGO_MAX_WIDTH / logoResult.width,
-            LOGO_MAX_HEIGHT / logoResult.height,
-            1
-          );
-          
-          const scaledWidth = logoResult.width * scaleFactor;
-          const scaledHeight = logoResult.height * scaleFactor;
-          
-          doc.image(logoResult.image, DEFAULT_MARGINS.left, DEFAULT_MARGINS.top / 2, {
-            width: scaledWidth,
-            height: scaledHeight
-          });
-        }
-        
-        doc.font(`${fontFamily}-Bold`)
-           .fontSize(HEADER_COMPANY_NAME_FONT_SIZE)
-           .text(companyName, 
-                doc.page.width - DEFAULT_MARGINS.right - doc.widthOfString(companyName),
-                DEFAULT_MARGINS.top / 2);
-        
-        doc.font(fontFamily).fontSize(fontSize).moveDown(2);
-        
-        startY = doc.y;
-      }
+    currentY += SPACING.tableRowSpacing;
+  });
+  
+  return currentY - startY; // Return total table height
+}
+
+/**
+ * Creates a PDF with a paragraph and a table
+ */
+export async function createPDFWithTable(
+  logoUrl: string,
+  companyName: string, 
+  paragraphText: string,
+  tableData: TableData,
+  options: PDFOptions = {}
+): Promise<PDFKit.PDFDocument> {
+  return new Promise<PDFKit.PDFDocument>(async (resolve, reject) => {
+    try {
+      const margin = options.margin || DEFAULT_MARGIN;
+      const fontFamily = options.fontFamily || 'Helvetica';
       
-      // Draw row cells
-      startX = DEFAULT_MARGINS.left;
-      const rowY = startY;
-      
-      columnNames.forEach(name => {
-        const cellValue = String(row[name] || '');
-        doc.text(cellValue, startX, rowY, {
-          width: columnWidth,
-          align: 'center'
-        });
-        startX += columnWidth;
+      // Create PDF document
+      const doc = new PDFDocument({ 
+        autoFirstPage: true,
+        margin
       });
       
-      // Move to next row position
-      startY = doc.y + 10;
+      // Set initial position
+      const startY = margin;
       
-      // Draw row separator
-      doc.moveTo(DEFAULT_MARGINS.left, startY - 5)
-         .lineTo(DEFAULT_MARGINS.left + tableWidth, startY - 5)
-         .lineWidth(0.5)
-         .stroke();
-    });
-  }
-  
-  // Add footer to all pages
-  const totalPages = doc.bufferedPageRange().count;
-  
-  for (let i = 0; i < totalPages; i++) {
-    doc.switchToPage(i);
-    
-    const pageBottom = doc.page.height - DEFAULT_MARGINS.bottom / 2;
-    
-    // Current date on left
-    doc.fontSize(FOOTER_FONT_SIZE)
-       .font(fontFamily)
-       .text(
-         new Date().toLocaleDateString(),
-         DEFAULT_MARGINS.left,
-         pageBottom
-       );
-    
-    // Page number on right
-    const pageText = `Page ${i + 1} of ${totalPages}`;
-    
-    doc.text(
-      pageText,
-      doc.page.width - DEFAULT_MARGINS.right - doc.widthOfString(pageText),
-      pageBottom
-    );
-  }
-
-  return doc;
+      // Add professional header with logo and company name
+      const headerHeight = await addElegantHeader(
+        doc,
+        logoUrl,
+        companyName,
+        margin,
+        startY
+      );
+      
+      // Add clear spacing after header
+      const contentStartY = startY + headerHeight + SPACING.headerToContent;
+      
+      // Add paragraph with proper formatting
+      doc.font(fontFamily)
+         .fontSize(FONT_SIZES.text)
+         .text(paragraphText, 
+            margin, 
+            contentStartY, 
+            {
+              width: doc.page.width - 2 * margin,
+              align: 'justify', // Justified text for professional appearance
+              lineGap: 2
+            });
+      
+      // Add table below paragraph with spacing
+      const tableStartY = doc.y + SPACING.paragraphToTable;
+      
+      addProfessionalTable(
+        doc,
+        tableData,
+        tableStartY,
+        margin
+      );
+      
+      // Get the total number of pages
+      const range = doc.bufferedPageRange();
+      const totalPages = range.count;
+      
+      // Apply elegant footer to each page
+      for (let i = 0; i < totalPages; i++) {
+        doc.switchToPage(i);
+        addElegantFooter(doc, i + 1, totalPages, margin);
+      }
+      
+      resolve(doc);
+    } catch (error) {
+      const errorMessage = error instanceof Error 
+        ? error.message 
+        : 'Unknown error';
+      reject(new Error(`Error generating PDF: ${errorMessage}`));
+    }
+  });
 }
