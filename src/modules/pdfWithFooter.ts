@@ -3,12 +3,10 @@ import * as fs from 'fs';
 import * as path from 'path';
 import axios, { AxiosResponse } from 'axios';
 
-// Define precise interfaces for type safety
+// Define interfaces for type safety
 export interface PDFOptions {
   outputPath: string;
   margin?: number;
-  headerHeight?: number;
-  footerHeight?: number;
   logoWidth?: number;
   fontSize?: {
     header?: number;
@@ -25,7 +23,7 @@ export interface SignatureInfo {
 }
 
 /**
- * Creates a PDF document with header, content paragraph, footer, and signature
+ * Creates a PDF document with header, content paragraph, and footer with date and page number
  */
 export async function createPDF(
   logoUrl: string | null,
@@ -34,16 +32,14 @@ export async function createPDF(
   signatureInfo: SignatureInfo,
   options: PDFOptions
 ): Promise<string> {
-  // Default values - using standard business document values
+  // Default values
   const margin = options.margin ?? 50;
-  const headerHeight = options.headerHeight ?? 80;
-  const footerHeight = options.footerHeight ?? 50;
-  const logoWidth = options.logoWidth ?? 70;
+  const logoWidth = options.logoWidth ?? 50;
   
   const fontSize = {
-    header: options.fontSize?.header ?? 16, // Standard size for headers
-    text: options.fontSize?.text ?? 12,     // Standard size for document body
-    footer: options.fontSize?.footer ?? 10, // Standard size for footer text
+    header: options.fontSize?.header ?? 16,
+    text: options.fontSize?.text ?? 12,
+    footer: options.fontSize?.footer ?? 10,
     signature: options.fontSize?.signature ?? 12,
     designation: options.fontSize?.designation ?? 10
   };
@@ -56,17 +52,12 @@ export async function createPDF(
       // Create a write stream
       const stream = fs.createWriteStream(options.outputPath);
 
-      // Create a new PDF document with proper typing
+      // Create a document with the footer space reserved
       const doc = new PDFDocument({
         autoFirstPage: true,
-        margins: {
-          top: margin + headerHeight,
-          bottom: margin + footerHeight,
-          left: margin,
-          right: margin
-        },
-        bufferPages: true,
-        size: 'A4'
+        size: 'A4',
+        margin,
+        bufferPages: true // Important for page numbering
       });
 
       // Pipe the PDF to the write stream
@@ -82,51 +73,74 @@ export async function createPDF(
         resolve(options.outputPath);
       });
 
-      // Main execution function
+      // Store current Y position for footer placement
+      const pageBottom = doc.page.height - margin;
+      
+      // Add event listener for new pages to ensure footer appears on every page
+      doc.on('pageAdded', () => {
+        // Each time a new page is added, we reserve space at the bottom for the footer
+        const footerTop = doc.page.height - margin - 20;
+        doc.page.margins.bottom = margin + 20; // Reserve space for footer
+      });
+
+      // Start document generation
       const generateDocument = async (): Promise<void> => {
         try {
-          // Add header with logo (if provided) and company name
-          await addHeader(doc, logoUrl, companyName, margin, logoWidth, fontSize.header);
+          // Add header with logo and company name
+          await addHeaderWithLogo(doc, logoUrl, companyName, margin, logoWidth, fontSize.header);
           
-          // Add content paragraph with increased spacing from header
-          addContent(doc, paragraphText, margin, headerHeight + 30, fontSize.text);
+          // Add content
+          doc.font('Helvetica').fontSize(fontSize.text);
+          doc.text(paragraphText, {
+            width: doc.page.width - 2 * margin,
+            align: 'left'
+          });
+          
+          // Add space before signature
+          doc.moveDown(2);
           
           // Add signature and designation
           addSignature(doc, signatureInfo, margin, fontSize.signature, fontSize.designation);
           
-          // Add footer with page numbers to each page
-          addFootersToAllPages(doc, margin, fontSize.footer);
+          // Get the total number of pages
+          const range = doc.bufferedPageRange();
+          const totalPages = range.count;
+          
+          // Apply footer to each page (date and page number on same footer)
+          for (let i = 0; i < totalPages; i++) {
+            doc.switchToPage(i);
+            addFooterToPage(doc, i + 1, totalPages, margin, fontSize.footer);
+          }
           
           // Finalize the PDF
           doc.end();
         } catch (error) {
           const errorMessage = error instanceof Error 
             ? error.message 
-            : 'Unknown error in PDF generation';
-          reject(new Error(`Error generating PDF document: ${errorMessage}`));
+            : 'Unknown error';
+          reject(new Error(`Error generating PDF: ${errorMessage}`));
         }
       };
 
-      // Start document generation
       generateDocument().catch((error: unknown) => {
         const errorMessage = error instanceof Error 
           ? error.message 
-          : 'Unknown error in PDF generation';
+          : 'Unknown error';
         reject(new Error(errorMessage));
       });
     } catch (error) {
       const errorMessage = error instanceof Error 
         ? error.message 
-        : 'Unknown error setting up PDF generation';
+        : 'Unknown error';
       reject(new Error(errorMessage));
     }
   });
 }
 
 /**
- * Adds header with logo and company name
+ * Add header with logo and company name
  */
-async function addHeader(
+async function addHeaderWithLogo(
   doc: PDFKit.PDFDocument,
   logoUrl: string | null,
   companyName: string,
@@ -134,62 +148,35 @@ async function addHeader(
   logoWidth: number,
   fontSize: number
 ): Promise<void> {
+  const startY = doc.y;
+
   // Add logo if URL is provided
   if (logoUrl) {
     try {
       const logoBuffer = await fetchLogo(logoUrl);
-      
-      // Draw the logo at the top left with reduced size
-      doc.image(logoBuffer, margin, margin, { 
-        width: logoWidth
-      });
+      doc.image(logoBuffer, margin, startY, { width: logoWidth });
     } catch (error) {
-      // Continue without logo instead of failing
       console.warn(`Could not add logo: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
-  // Add company name at the top right corner
+  // Add company name right-aligned
   doc.font('Helvetica-Bold')
      .fontSize(fontSize)
      .text(companyName, 
            margin, 
-           margin, 
+           startY, 
            { 
              align: 'right',
-             width: doc.page.width - (2 * margin)
+             width: doc.page.width - 2 * margin
            });
 
-  // Reset font for content
-  doc.font('Helvetica')
-     .fontSize(12);
+  // Add space after header
+  doc.moveDown(2);
 }
 
 /**
- * Adds the main paragraph content
- */
-function addContent(
-  doc: PDFKit.PDFDocument,
-  paragraphText: string,
-  margin: number,
-  headerHeight: number,
-  fontSize: number
-): void {
-  const contentY = margin + headerHeight;
-  
-  doc.font('Helvetica')
-     .fontSize(fontSize)
-     .text(paragraphText, 
-           margin, 
-           contentY, 
-           { 
-             align: 'left',
-             width: doc.page.width - (2 * margin)
-           });
-}
-
-/**
- * Adds signature and designation
+ * Add signature and designation
  */
 function addSignature(
   doc: PDFKit.PDFDocument,
@@ -198,13 +185,11 @@ function addSignature(
   signatureFontSize: number,
   designationFontSize: number
 ): void {
-  const signatureY = doc.y + 50; // Add some space after the content
-  
   doc.font('Helvetica-Bold')
      .fontSize(signatureFontSize)
      .text(signatureInfo.name, 
            doc.page.width - margin - 150, 
-           signatureY, 
+           doc.y, 
            { align: 'left', width: 150 });
            
   doc.font('Helvetica')
@@ -216,83 +201,75 @@ function addSignature(
 }
 
 /**
- * Adds footer with page numbers to all pages
+ * Add footer with date and page number to a single page
+ * Places BOTH date and page number on the same footer
  */
-function addFootersToAllPages(
+function addFooterToPage(
   doc: PDFKit.PDFDocument,
+  pageNumber: number,
+  totalPages: number,
   margin: number,
   fontSize: number
 ): void {
-  // Get total pages
-  const range = doc.bufferedPageRange();
-  const totalPages = range.count;
+  // Calculate footer position at bottom of page
+  const footerY = doc.page.height - margin - 15;
   
-  // Add footer to each page with page numbers
-  let pageNumber = 0;
+  // Format date with proper format
+  const currentDate = new Date().toLocaleDateString('en-US', {
+    year: 'numeric', 
+    month: 'long', 
+    day: 'numeric'
+  });
   
-  for (let i = range.start; i < range.start + range.count; i++) {
-    pageNumber++;
-    doc.switchToPage(i);
+  // Save current drawing state
+  doc.save();
+  
+  // Add date on left side of footer
+  doc.font('Helvetica')
+     .fontSize(fontSize)
+     .text(currentDate, 
+           margin, 
+           footerY, 
+           { align: 'left' });
 
-    const footerY = doc.page.height - margin - 20;
-    
-    // Add current date on the left
-    const currentDate = new Date().toLocaleDateString('en-US', {
-      year: 'numeric', 
-      month: 'long', 
-      day: 'numeric'
-    });
-    
-    doc.font('Helvetica')
-       .fontSize(fontSize)
-       .text(currentDate, 
-             margin, 
-             footerY, 
-             { align: 'left' });
-             
-    // Add page number on the right
-    doc.text(
-      `Page ${pageNumber} of ${totalPages}`,
-      doc.page.width - margin - 100,
-      footerY,
-      { align: 'right', width: 100 }
-    );
-  }
+  // Add page number on right side (same footer, same page)
+  doc.text(`Page ${pageNumber} of ${totalPages}`,
+           doc.page.width - margin - 100,
+           footerY,
+           { align: 'right', width: 100 });
+  
+  // Restore drawing state
+  doc.restore();
 }
 
 /**
- * Fetches a logo from URL and returns it as a buffer
+ * Fetch logo from URL
  */
 async function fetchLogo(url: string): Promise<Buffer> {
   try {
-    // Handle different types of URLs (http, https, file)
     if (url.startsWith('http://') || url.startsWith('https://')) {
       const response: AxiosResponse<ArrayBuffer> = await axios.get(url, { 
         responseType: 'arraybuffer',
-        timeout: 10000 // 10 seconds timeout to prevent hanging
+        timeout: 10000
       });
       return Buffer.from(response.data);
     } else {
-      // Assume it's a local file
+      // Local file
       return fs.promises.readFile(url);
     }
   } catch (error) {
-    const errorMessage = error instanceof Error 
-      ? error.message 
-      : 'Unknown error fetching logo';
-    throw new Error(`Failed to fetch logo: ${errorMessage}`);
+    throw new Error(`Failed to fetch logo: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
 
 /**
- * Ensures the directory exists for the output file
+ * Ensure output directory exists
  */
 async function ensureDirectoryExists(filePath: string): Promise<void> {
   const dirPath = path.dirname(filePath);
   try {
     await fs.promises.mkdir(dirPath, { recursive: true });
   } catch (error) {
-    // Only throw if it's not an "already exists" error
     if (!(error instanceof Error && 'code' in error && error.code === 'EEXIST')) {
       throw error;
     }
