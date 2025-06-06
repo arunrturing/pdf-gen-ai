@@ -34,16 +34,16 @@ export async function createPDF(
   signatureInfo: SignatureInfo,
   options: PDFOptions
 ): Promise<string> {
-  // Default values
+  // Default values - using standard business document values
   const margin = options.margin ?? 50;
   const headerHeight = options.headerHeight ?? 80;
   const footerHeight = options.footerHeight ?? 50;
-  const logoWidth = options.logoWidth ?? 70; // Reduced from 100 to 70
+  const logoWidth = options.logoWidth ?? 70;
   
   const fontSize = {
-    header: options.fontSize?.header ?? 14, // Reduced from 16 to 14
-    text: options.fontSize?.text ?? 12,
-    footer: options.fontSize?.footer ?? 10,
+    header: options.fontSize?.header ?? 16, // Standard size for headers
+    text: options.fontSize?.text ?? 12,     // Standard size for document body
+    footer: options.fontSize?.footer ?? 10, // Standard size for footer text
     signature: options.fontSize?.signature ?? 12,
     designation: options.fontSize?.designation ?? 10
   };
@@ -135,8 +135,6 @@ async function addHeader(
   fontSize: number
 ): Promise<void> {
   // Add logo if URL is provided
-  let logoHeight = 0;
-  
   if (logoUrl) {
     try {
       const logoBuffer = await fetchLogo(logoUrl);
@@ -145,27 +143,22 @@ async function addHeader(
       doc.image(logoBuffer, margin, margin, { 
         width: logoWidth
       });
-      
-      // Estimate logo height based on the width (assuming 1:1 aspect ratio as a fallback)
-      logoHeight = logoWidth;
     } catch (error) {
       // Continue without logo instead of failing
       console.warn(`Could not add logo: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
-  // Add company name next to logo or at margin if no logo
-  const companyNameX = logoUrl ? margin + logoWidth + 10 : margin;
-  
-  // Align vertically with the logo
-  const companyNameY = margin + (logoHeight ? (logoHeight / 2 - fontSize / 2) : 0);
-  
+  // Add company name at the top right corner
   doc.font('Helvetica-Bold')
      .fontSize(fontSize)
      .text(companyName, 
-           companyNameX, 
-           companyNameY, 
-           { align: 'left' });
+           margin, 
+           margin, 
+           { 
+             align: 'right',
+             width: doc.page.width - (2 * margin)
+           });
 
   // Reset font for content
   doc.font('Helvetica')
@@ -244,7 +237,12 @@ function addFootersToAllPages(
     const footerY = doc.page.height - margin - 20;
     
     // Add current date on the left
-    const currentDate = new Date().toLocaleDateString();
+    const currentDate = new Date().toLocaleDateString('en-US', {
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric'
+    });
+    
     doc.font('Helvetica')
        .fontSize(fontSize)
        .text(currentDate, 
