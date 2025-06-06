@@ -206,14 +206,14 @@ export async function createPDFWithTable(
   // Add header to the first page
   const headerHeight = addHeader();
   
-  // Process content items
+  // Process content items - maintain original paragraph formatting
   for (const item of pdfData) {
     switch (item.attributeType) {
       case 'paragraph':
         doc.font(fontFamily)
            .fontSize(fontSize)
            .text(item.content, {
-              align: 'left',
+              align: 'justify', // Maintain justified alignment
               lineGap: (lineHeight - 1) * fontSize,
               width: doc.page.width - DEFAULT_MARGINS.left - DEFAULT_MARGINS.right,
               indent: 0
@@ -242,10 +242,10 @@ export async function createPDFWithTable(
     }
   }
   
-  // Add table if provided
+  // Add table if provided, ensuring it appears below the paragraphs
   if (tableData && tableData.items.length > 0) {
-    // Add some spacing before table
-    doc.moveDown();
+    // Add more spacing before table to clearly separate from paragraphs
+    doc.moveDown(2);
     
     // Add table heading
     doc.font(`${fontFamily}-Bold`)
@@ -267,26 +267,28 @@ export async function createPDFWithTable(
     doc.font(`${fontFamily}-Bold`)
        .fontSize(fontSize);
        
-    let xPos = DEFAULT_MARGINS.left;
-    let yPos = doc.y;
+    // Save the starting Y position of the table header
+    const tableHeaderY = doc.y;
     
-    columnNames.forEach(columnName => {
-      doc.text(columnName, xPos, yPos, {
+    // Draw header cells
+    columnNames.forEach((columnName, index) => {
+      const xPos = DEFAULT_MARGINS.left + (index * columnWidth);
+      doc.text(columnName, xPos, tableHeaderY, {
         width: columnWidth,
         align: 'center'
       });
-      xPos += columnWidth;
     });
     
-    // Move to position after all header cells
-    doc.y = yPos + fontSize + 5;
+    // Move down after the header text
+    const headerHeight = fontSize * 1.5;
     
     // Draw a line under the header
-    doc.moveTo(DEFAULT_MARGINS.left, doc.y)
-       .lineTo(doc.page.width - DEFAULT_MARGINS.right, doc.y)
+    doc.moveTo(DEFAULT_MARGINS.left, tableHeaderY + headerHeight)
+       .lineTo(doc.page.width - DEFAULT_MARGINS.right, tableHeaderY + headerHeight)
        .stroke();
        
-    doc.moveDown(0.5);
+    // Position for first row
+    let rowY = tableHeaderY + headerHeight + 5;
     
     // Draw table rows
     doc.font(fontFamily)
@@ -294,34 +296,34 @@ export async function createPDFWithTable(
        
     tableData.items.forEach((item, index) => {
       // Check if we're close to the bottom of the page and need a new page
-      if (doc.y + 5 * fontSize > doc.page.height - DEFAULT_MARGINS.bottom) {
+      if (rowY + 3 * fontSize > doc.page.height - DEFAULT_MARGINS.bottom) {
         doc.addPage();
         addHeader();
+        rowY = doc.y; // Reset rowY to current position after header
       }
       
       // Draw each cell in the row
-      xPos = DEFAULT_MARGINS.left;
-      yPos = doc.y;
-      
-      columnNames.forEach(columnName => {
+      columnNames.forEach((columnName, colIndex) => {
+        const xPos = DEFAULT_MARGINS.left + (colIndex * columnWidth);
         const cellContent = String(item[columnName] || '');
-        doc.text(cellContent, xPos, yPos, {
+        doc.text(cellContent, xPos, rowY, {
           width: columnWidth,
           align: 'center'
         });
-        xPos += columnWidth;
       });
       
-      // Move to position after all header cells
-      doc.y = yPos + fontSize + 5;
+      // Calculate the row height (use line height or fixed value)
+      const rowHeight = fontSize * 1.5;
       
       // Draw a light line under the row
-      doc.moveTo(DEFAULT_MARGINS.left, doc.y)
-         .lineTo(doc.page.width - DEFAULT_MARGINS.right, doc.y)
+      doc.moveTo(DEFAULT_MARGINS.left, rowY + rowHeight)
+         .lineTo(doc.page.width - DEFAULT_MARGINS.right, rowY + rowHeight)
          .lineWidth(0.5)
          .stroke();
          
-      doc.moveDown(0.5);
+      // Move to next row position
+      rowY += rowHeight + 5;
+      doc.y = rowY; // Update doc.y to match our tracking
     });
   }
   
@@ -336,5 +338,3 @@ export async function createPDFWithTable(
 
   return doc;
 }
-
-
