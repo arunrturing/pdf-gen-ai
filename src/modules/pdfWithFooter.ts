@@ -8,6 +8,9 @@ export interface PDFOptions {
   outputPath: string;
   margin?: number;
   logoWidth?: number;
+  headerSpacing?: number;
+  paragraphSpacing?: number;
+  signatureSpacing?: number;
   fontSize?: {
     header?: number;
     text?: number;
@@ -23,7 +26,7 @@ export interface SignatureInfo {
 }
 
 /**
- * Creates a PDF document with header, content paragraph, and footer with date and page number
+ * Creates an elegant, professionally formatted PDF document
  */
 export async function createPDF(
   logoUrl: string | null,
@@ -32,14 +35,17 @@ export async function createPDF(
   signatureInfo: SignatureInfo,
   options: PDFOptions
 ): Promise<string> {
-  // Default values
-  const margin = options.margin ?? 50;
-  const logoWidth = options.logoWidth ?? 50;
+  // Default values optimized for professional appearance
+  const margin = options.margin ?? 60; // Slightly larger margin for more elegant whitespace
+  const logoWidth = options.logoWidth ?? 40; // Smaller logo for better proportion
+  const headerSpacing = options.headerSpacing ?? 35; // Space after header
+  const paragraphSpacing = options.paragraphSpacing ?? 30; // Space after paragraph
+  const signatureSpacing = options.signatureSpacing ?? 50; // Space before signature
   
   const fontSize = {
-    header: options.fontSize?.header ?? 16,
-    text: options.fontSize?.text ?? 12,
-    footer: options.fontSize?.footer ?? 10,
+    header: options.fontSize?.header ?? 16,  // Professional header size
+    text: options.fontSize?.text ?? 12,      // Standard text size for readability
+    footer: options.fontSize?.footer ?? 9,   // Slightly smaller for footer (professional standard)
     signature: options.fontSize?.signature ?? 12,
     designation: options.fontSize?.designation ?? 10
   };
@@ -52,61 +58,81 @@ export async function createPDF(
       // Create a write stream
       const stream = fs.createWriteStream(options.outputPath);
 
-      // Create a document with the footer space reserved
+      // Create a document with professional layout
       const doc = new PDFDocument({
         autoFirstPage: true,
         size: 'A4',
         margin,
-        bufferPages: true // Important for page numbering
+        bufferPages: true
       });
 
       // Pipe the PDF to the write stream
       doc.pipe(stream);
 
-      // Handle stream errors
+      // Handle stream events
       stream.on('error', (err: Error) => {
         reject(new Error(`Error writing to PDF stream: ${err.message}`));
       });
 
-      // When the document is completed
       stream.on('finish', () => {
         resolve(options.outputPath);
       });
 
-      // Store current Y position for footer placement
-      const pageBottom = doc.page.height - margin;
+      // Reserve space for footer on each page
+      const pageBottom = doc.page.height - margin - 20;
       
-      // Add event listener for new pages to ensure footer appears on every page
+      // Add event listener for new pages
       doc.on('pageAdded', () => {
-        // Each time a new page is added, we reserve space at the bottom for the footer
-        const footerTop = doc.page.height - margin - 20;
-        doc.page.margins.bottom = margin + 20; // Reserve space for footer
+        // Ensure consistent margins on each page
+        doc.page.margins.bottom = margin + 20;
       });
 
-      // Start document generation
+      // Generate the document content
       const generateDocument = async (): Promise<void> => {
         try {
-          // Add header with logo and company name
-          await addHeaderWithLogo(doc, logoUrl, companyName, margin, logoWidth, fontSize.header);
+          // Starting position
+          let currentY = margin;
           
-          // Add content
+          // Add header with logo and company name
+          currentY = await addHeaderWithLogo(
+            doc, logoUrl, companyName, margin, 
+            currentY, logoWidth, fontSize.header
+          );
+          
+          // Add proper spacing after header
+          currentY += headerSpacing;
+          
+          // Add content with proper spacing
           doc.font('Helvetica').fontSize(fontSize.text);
+          doc.y = currentY; // Set position explicitly
+          
           doc.text(paragraphText, {
             width: doc.page.width - 2 * margin,
-            align: 'left'
+            align: 'left',
+            lineGap: 2 // Slightly increased line spacing for better readability
           });
           
-          // Add space before signature
-          doc.moveDown(2);
+          // Add signature after paragraph with proper spacing
+          const signatureY = Math.min(
+            doc.y + signatureSpacing, 
+            doc.page.height - margin - 80
+          );
           
-          // Add signature and designation
-          addSignature(doc, signatureInfo, margin, fontSize.signature, fontSize.designation);
+          // If signature would go too close to bottom, add a new page
+          if (signatureY > doc.page.height - margin - 80) {
+            doc.addPage();
+            addSignature(doc, signatureInfo, margin, margin + 40, 
+              fontSize.signature, fontSize.designation);
+          } else {
+            addSignature(doc, signatureInfo, margin, signatureY, 
+              fontSize.signature, fontSize.designation);
+          }
           
-          // Get the total number of pages
+          // Get total pages and add footers
           const range = doc.bufferedPageRange();
           const totalPages = range.count;
           
-          // Apply footer to each page (date and page number on same footer)
+          // Add footer to each page
           for (let i = 0; i < totalPages; i++) {
             doc.switchToPage(i);
             addFooterToPage(doc, i + 1, totalPages, margin, fontSize.footer);
@@ -138,29 +164,38 @@ export async function createPDF(
 }
 
 /**
- * Add header with logo and company name
+ * Add header with logo and company name, returns the next Y position
  */
 async function addHeaderWithLogo(
   doc: PDFKit.PDFDocument,
   logoUrl: string | null,
   companyName: string,
   margin: number,
+  startY: number,
   logoWidth: number,
   fontSize: number
-): Promise<void> {
-  const startY = doc.y;
+): Promise<number> {
+  // Height tracking
+  let maxHeight = 0;
+  const initialY = startY;
 
-  // Add logo if URL is provided
+  // Add logo if provided
   if (logoUrl) {
     try {
       const logoBuffer = await fetchLogo(logoUrl);
+      
+      // Draw logo with smaller size
       doc.image(logoBuffer, margin, startY, { width: logoWidth });
+      
+      // Estimate logo height (assuming aspect ratio preservation)
+      const logoHeight = logoWidth; // Estimate, will vary based on actual logo
+      maxHeight = Math.max(maxHeight, logoHeight);
     } catch (error) {
       console.warn(`Could not add logo: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
-  // Add company name right-aligned
+  // Add company name right-aligned, vertically centered with logo
   doc.font('Helvetica-Bold')
      .fontSize(fontSize)
      .text(companyName, 
@@ -170,39 +205,60 @@ async function addHeaderWithLogo(
              align: 'right',
              width: doc.page.width - 2 * margin
            });
-
-  // Add space after header
-  doc.moveDown(2);
+  
+  // Update max height based on text height
+  const textHeight = fontSize * 1.2; // Estimate text height
+  maxHeight = Math.max(maxHeight, textHeight);
+  
+  // Return the position below the header
+  return initialY + maxHeight;
 }
 
 /**
- * Add signature and designation
+ * Add signature and designation with proper alignment
  */
 function addSignature(
   doc: PDFKit.PDFDocument,
   signatureInfo: SignatureInfo,
   margin: number,
+  yPosition: number,
   signatureFontSize: number,
   designationFontSize: number
 ): void {
+  // Save position
+  doc.y = yPosition;
+  
+  // Calculate right-aligned position
+  const signatureWidth = 150;
+  const signatureX = doc.page.width - margin - signatureWidth;
+  
+  // Add signature name with bold font
   doc.font('Helvetica-Bold')
      .fontSize(signatureFontSize)
      .text(signatureInfo.name, 
-           doc.page.width - margin - 150, 
-           doc.y, 
-           { align: 'left', width: 150 });
+           signatureX, 
+           yPosition, 
+           { 
+             align: 'left', 
+             width: signatureWidth,
+             continued: false
+           });
            
+  // Add designation on the next line
   doc.font('Helvetica')
      .fontSize(designationFontSize)
      .text(signatureInfo.designation, 
-           doc.page.width - margin - 150,
+           signatureX,
            doc.y + 5, 
-           { align: 'left', width: 150 });
+           { 
+             align: 'left', 
+             width: signatureWidth,
+             continued: false
+           });
 }
 
 /**
- * Add footer with date and page number to a single page
- * Places BOTH date and page number on the same footer
+ * Add footer with date and page number
  */
 function addFooterToPage(
   doc: PDFKit.PDFDocument,
@@ -211,20 +267,23 @@ function addFooterToPage(
   margin: number,
   fontSize: number
 ): void {
-  // Calculate footer position at bottom of page
+  // Calculate footer position
   const footerY = doc.page.height - margin - 15;
   
-  // Format date with proper format
+  // Format date elegantly
   const currentDate = new Date().toLocaleDateString('en-US', {
     year: 'numeric', 
     month: 'long', 
     day: 'numeric'
   });
   
-  // Save current drawing state
+  // Save current state
   doc.save();
   
-  // Add date on left side of footer
+  // Use slightly lighter font color for footer (more elegant)
+  doc.fillColor('#555555');
+  
+  // Add date on left
   doc.font('Helvetica')
      .fontSize(fontSize)
      .text(currentDate, 
@@ -232,13 +291,15 @@ function addFooterToPage(
            footerY, 
            { align: 'left' });
 
-  // Add page number on right side (same footer, same page)
-  doc.text(`Page ${pageNumber} of ${totalPages}`,
-           doc.page.width - margin - 100,
-           footerY,
-           { align: 'right', width: 100 });
+  // Add page number on right
+  doc.text(
+    `Page ${pageNumber} of ${totalPages}`,
+    doc.page.width - margin - 100,
+    footerY,
+    { align: 'right', width: 100 }
+  );
   
-  // Restore drawing state
+  // Restore state
   doc.restore();
 }
 
@@ -254,7 +315,6 @@ async function fetchLogo(url: string): Promise<Buffer> {
       });
       return Buffer.from(response.data);
     } else {
-      // Local file
       return fs.promises.readFile(url);
     }
   } catch (error) {
