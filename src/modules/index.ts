@@ -1,1 +1,3 @@
-export * from './example';
+export * from './basePdfGenerator';
+export * from './pdfWithParagraphs'
+export * from './pdfWithFooter'
