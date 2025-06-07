@@ -151,16 +151,17 @@ export async function createPDFWithBarsAndPie(
       const currentDate = formatDate(new Date(), dateFormat);
 
       // Add footer with date and page numbers to each page
+      // Position them closer to the bottom of the page
       const range = doc.bufferedPageRange();
       for (let i = 0; i < range.count; i++) {
         doc.switchToPage(i);
         
-        // Add date on the left
+        // Add date on the left - position it very close to the bottom
         doc.fontSize(10)
            .text(
              currentDate,
              pageMargin,
-             doc.page.height - pageMargin - 15,
+             doc.page.height - pageMargin + 20, // Position closer to the bottom edge
              { align: 'left' }
            );
         
@@ -168,7 +169,7 @@ export async function createPDFWithBarsAndPie(
         doc.text(
           `Page ${i + 1} of ${range.count}`,
           doc.page.width - pageMargin - 100,
-          doc.page.height - pageMargin - 15,
+          doc.page.height - pageMargin + 20, // Position closer to the bottom edge
           { align: 'right', width: 100 }
         );
       }
@@ -242,7 +243,7 @@ async function renderTable(
        .fontSize(14)
        .text(table.title, {
          align: 'center',
-         width: doc.page.width - (pageMargin * 2) // Ensure title has full width and doesn't wrap
+         width: doc.page.width - (pageMargin * 2) // Full width to prevent wrapping
        })
        .moveDown();
   }
@@ -410,8 +411,8 @@ function renderBarChart(
        );
   }
   
-  // Update position
-  doc.y = startY + chartHeight + 30;
+  // Update position - ensure enough space for labels and footer
+  doc.y = startY + chartHeight + 40;
 }
 
 /**
@@ -493,8 +494,8 @@ function renderPieChart(
     legendY += 20;
   }
   
-  // Update position
-  doc.y = centerY + radius + 20;
+  // Update position - ensure enough space for footer
+  doc.y = centerY + radius + 40;
 }
 
 /**
