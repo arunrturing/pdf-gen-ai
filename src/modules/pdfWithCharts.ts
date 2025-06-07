@@ -86,7 +86,7 @@ export async function createPDFWithBarsAndPie(
       if (logoUrl) {
         try {
           const imageBuffer = await fetchImageBuffer(logoUrl);
-          const dimensions = imageSize.imageSize(imageBuffer);
+          const dims = imageSize.imageSize(imageBuffer);
           
           // Add logo to top left
           doc.image(
@@ -97,8 +97,8 @@ export async function createPDFWithBarsAndPie(
           );
             
           // Add company name next to logo
-          const logoHeight = dimensions.height 
-            ? (dimensions.height * logoWidth) / (dimensions.width || 1)
+          const logoHeight = dims.height 
+            ? (dims.height * logoWidth) / (dims.width || 1)
             : logoWidth;
             
           doc.fontSize(companyNameFontSize)
@@ -170,12 +170,12 @@ export async function createPDFWithBarsAndPie(
       }
 
       // Add page numbers
-      const totalPages = doc.bufferedPageRange().count;
-      for (let i = 0; i < totalPages; i++) {
+      const range = doc.bufferedPageRange();
+      for (let i = 0; i < range.count; i++) {
         doc.switchToPage(i);
         doc.fontSize(10)
            .text(
-             `Page ${i + 1} of ${totalPages}`,
+             `Page ${i + 1} of ${range.count}`,
              0,
              doc.page.height - pageMargin - 20,
              { align: 'center' }
@@ -405,12 +405,25 @@ function renderPieChart(
     const sliceColor = chart.colors?.[i] || defaultColors[colorIndex];
     
     // Draw slice
-    doc.fillColor(sliceColor)
-       .moveTo(centerX, centerY)
-       .arc(centerX, centerY, radius, startAngle, endAngle, false)
-       .lineTo(centerX, centerY)
-       .closePath()
-       .fill();
+    doc.save();
+    doc.fillColor(sliceColor);
+    
+    // Draw pie slice manually using moveTo and lineTo instead of arc
+    doc.moveTo(centerX, centerY);
+    
+    // Add pie slice path with multiple small lines to simulate an arc
+    // This works around the PDFKit TypeScript arc method issue
+    const segments = 16; // Number of segments to approximate the arc
+    for (let j = 0; j <= segments; j++) {
+      const angle = startAngle + (endAngle - startAngle) * (j / segments);
+      const xPos = centerX + Math.cos(angle) * radius;
+      const yPos = centerY + Math.sin(angle) * radius;
+      doc.lineTo(xPos, yPos);
+    }
+    
+    doc.lineTo(centerX, centerY);
+    doc.closePath().fill();
+    doc.restore();
     
     // Update angle
     startAngle = endAngle;

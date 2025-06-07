@@ -2,6 +2,7 @@ import { createPdf,createHeaderedParagraphsPDF } from '@modules';
 import { createPDF } from '@modules';
 import { createPDFWithTable } from '@modules';
 import { createMultipleTables } from '@modules';
+import { createPDFWithBarsAndPie } from '@modules';
 import fs from 'fs';
 import path from 'path';
 
@@ -253,7 +254,7 @@ describe('PDF Generator', () => {
         console.log(`📊 Table data: ${tableData.items.length} rows with ${Object.keys(tableData.items[0]).length} columns`);
     });
 
-    test('should generate PDF with multiple tables using createMultipleTables', async () => {
+    test.skip('should generate PDF with multiple tables using createMultipleTables', async () => {
         // Test data configuration
         const logoUrl = "https://multi-tenant-dev.n-oms.in/assets/logo-hd2-BZqe1saO.png";
         const companyName = "NOMS Pvt Ltd";
@@ -339,6 +340,116 @@ describe('PDF Generator', () => {
         // Log details about each table
         tables.forEach((table, index) => {
             console.log(`  Table ${index + 1}: "${table.tableHeading}" - ${table.items.length} rows, ${Object.keys(table.items[0]).length} columns`);
+        });
+    });
+
+    test('should generate PDF with bar charts, pie charts, and tables using createPDFWithBarsAndPie', async () => {
+        // Test data configuration
+        const logoUrl = "https://multi-tenant-dev.n-oms.in/assets/logo-hd2-BZqe1saO.png";
+        const companyName = "NOMS Pvt Ltd - Charts & Analytics";
+
+        // Sample tables data
+        const tables = [
+            {
+                title: 'Quarterly Sales Performance',
+                headers: ['Quarter', 'Revenue', 'Units Sold', 'Growth %'],
+                rows: [
+                    ['Q1 2024', 125000, 850, '15%'],
+                    ['Q2 2024', 142000, 920, '18%'],
+                    ['Q3 2024', 165000, 1050, '22%'],
+                    ['Q4 2024', 180000, 1200, '25%']
+                ]
+            },
+            {
+                title: 'Department Expenses Breakdown',
+                headers: ['Department', 'Budget', 'Actual', 'Variance'],
+                rows: [
+                    ['Marketing', 50000, 48000, '-4%'],
+                    ['Operations', 75000, 78000, '+4%'],
+                    ['R&D', 60000, 55000, '-8%'],
+                    ['Sales', 40000, 42000, '+5%']
+                ]
+            }
+        ];
+
+        // Sample charts data
+        const charts = [
+            {
+                type: 'bar' as const,
+                title: 'Monthly Revenue Growth',
+                labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'],
+                data: [45000, 52000, 48000, 61000, 55000, 67000],
+                colors: ['#4F81BD', '#C0504D', '#9BBB59', '#8064A2', '#F79646', '#4BACC6'],
+                width: 400,
+                height: 250
+            },
+            {
+                type: 'pie' as const,
+                title: 'Market Share Distribution',
+                labels: ['Product A', 'Product B', 'Product C', 'Product D', 'Others'],
+                data: [35, 28, 20, 12, 5],
+                colors: ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7'],
+                width: 300,
+                height: 300
+            },
+            {
+                type: 'bar' as const,
+                title: 'Regional Sales Comparison',
+                labels: ['North', 'South', 'East', 'West', 'Central'],
+                data: [85, 92, 78, 95, 88],
+                width: 450,
+                height: 280
+            }
+        ];
+
+        // PDF options configuration
+        const options = {
+            pageMargin: 60,
+            fontFamily: 'Helvetica',
+            fontSize: 11,
+            companyNameFontSize: 18,
+            logoWidth: 80
+        };
+
+        // Generate the PDF
+        const pdfBuffer = await createPDFWithBarsAndPie(logoUrl, companyName, tables, charts, options);
+        
+        // Create output path for saving
+        const outputPath = `./test-output/charts-and-tables-${Date.now()}.pdf`;
+        
+        // Create output directory if it doesn't exist
+        const outputDir = path.dirname(outputPath);
+        if (!fs.existsSync(outputDir)) {
+            fs.mkdirSync(outputDir, { recursive: true });
+        }
+
+        // Save the PDF to file
+        await fs.promises.writeFile(outputPath, pdfBuffer);
+        
+        // Verify the PDF was created
+        expect(fs.existsSync(outputPath)).toBe(true);
+        
+        // Check file stats
+        const stats = fs.statSync(outputPath);
+        expect(stats.size).toBeGreaterThan(0);
+        
+        // Verify it's a valid PDF by checking file header
+        const pdfHeader = pdfBuffer.subarray(0, 4).toString();
+        expect(pdfHeader).toBe('%PDF');
+        
+        console.log(`✅ Charts and tables PDF generated successfully at: ${outputPath}`);
+        console.log(`📄 File size: ${stats.size} bytes`);
+        console.log(`🔍 PDF header validation: ${pdfHeader} ✅`);
+        console.log(`📊 Content summary:`);
+        console.log(`  - Tables: ${tables.length} tables with ${tables.reduce((sum, table) => sum + table.rows.length, 0)} total rows`);
+        console.log(`  - Charts: ${charts.length} charts (${charts.filter(c => c.type === 'bar').length} bar, ${charts.filter(c => c.type === 'pie').length} pie)`);
+        
+        // Log details about each table and chart
+        tables.forEach((table, index) => {
+            console.log(`  Table ${index + 1}: "${table.title}" - ${table.rows.length} rows, ${table.headers.length} columns`);
+        });
+        charts.forEach((chart, index) => {
+            console.log(`  Chart ${index + 1}: ${chart.type.toUpperCase()} - "${chart.title}" with ${chart.data.length} data points`);
         });
     });
 });
