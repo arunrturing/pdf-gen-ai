@@ -128,6 +128,33 @@ export async function createPDFWithBarsAndPie(
       // Reset font for content
       doc.font(fontFamily).fontSize(fontSize);
 
+      // Define a function for adding footer to pages
+      const addFooter = () => {
+        // Format current date
+        const currentDate = formatDate(new Date(), dateFormat);
+        
+        // Add date on the left
+        doc.fontSize(10)
+           .fillColor('#000000')
+           .text(
+             currentDate,
+             pageMargin,
+             doc.page.height - 25,
+             { align: 'left' }
+           );
+        
+        // Add page numbers on the right
+        const totalPages = doc.bufferedPageRange().count;
+        doc.text(
+          `Page ${doc.bufferedPageRange().start + 1} of ${totalPages}`,
+          doc.page.width - pageMargin - 100,
+          doc.page.height - 25,
+          { align: 'right', width: 100 }
+        );
+      };
+
+      // We'll add the footer after content generation
+      
       // Render tables
       for (const table of tables) {
         await renderTable(doc, table, pageMargin, fontFamily, fontSize);
@@ -157,34 +184,11 @@ export async function createPDFWithBarsAndPie(
         doc.moveDown(2);
       }
 
-      // Add footer to each page
-      const range = doc.bufferedPageRange();
-      const totalPages = range.count;
-      
-      // Format current date
-      const currentDate = formatDate(new Date(), dateFormat);
-      
-      // Add footer to each page
+      // Now add footer to all pages
+      const totalPages = doc.bufferedPageRange().count;
       for (let i = 0; i < totalPages; i++) {
         doc.switchToPage(i);
-        
-        // Add date on the left
-        doc.fontSize(10)
-           .fillColor('#000000')
-           .text(
-             currentDate,
-             pageMargin,
-             doc.page.height - 25,
-             { align: 'left' }
-           );
-        
-        // Add page numbers on the right
-        doc.text(
-          `Page ${i + 1} of ${totalPages}`,
-          doc.page.width - pageMargin - 100,
-          doc.page.height - 25,
-          { align: 'right', width: 100 }
-        );
+        addFooter();
       }
 
       // Finalize the PDF
@@ -242,7 +246,7 @@ async function renderTable(
   fontFamily: string,
   fontSize: number
 ): Promise<void> {
-  // Add table title if provided (centered with proper width)
+  // Add table title if provided (centered)
   if (table.title) {
     // Check for page break
     if (doc.y + 40 > doc.page.height - pageMargin - 30) {
