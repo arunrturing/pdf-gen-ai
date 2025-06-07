@@ -57,7 +57,6 @@ export async function createPDFWithBarsAndPie(
   const fontSize = options.fontSize || 12;
   const companyNameFontSize = options.companyNameFontSize || 16;
   const logoWidth = options.logoWidth || 100;
-  const dateFormat = options.dateFormat || 'MM/DD/YYYY';
   const titleFontSize = options.titleFontSize || 18;
 
   return new Promise<Buffer>(async (resolve, reject) => {
@@ -128,33 +127,6 @@ export async function createPDFWithBarsAndPie(
       // Reset font for content
       doc.font(fontFamily).fontSize(fontSize);
 
-      // Define a function for adding footer to pages
-      const addFooter = () => {
-        // Format current date
-        const currentDate = formatDate(new Date(), dateFormat);
-        
-        // Add date on the left
-        doc.fontSize(10)
-           .fillColor('#000000')
-           .text(
-             currentDate,
-             pageMargin,
-             doc.page.height - 25,
-             { align: 'left' }
-           );
-        
-        // Add page numbers on the right
-        const totalPages = doc.bufferedPageRange().count;
-        doc.text(
-          `Page ${doc.bufferedPageRange().start + 1} of ${totalPages}`,
-          doc.page.width - pageMargin - 100,
-          doc.page.height - 25,
-          { align: 'right', width: 100 }
-        );
-      };
-
-      // We'll add the footer after content generation
-      
       // Render tables
       for (const table of tables) {
         await renderTable(doc, table, pageMargin, fontFamily, fontSize);
@@ -184,11 +156,11 @@ export async function createPDFWithBarsAndPie(
         doc.moveDown(2);
       }
 
-      // Now add footer to all pages
+      // Apply elegant footer to each page
       const totalPages = doc.bufferedPageRange().count;
       for (let i = 0; i < totalPages; i++) {
         doc.switchToPage(i);
-        addFooter();
+        addElegantFooter(doc, i + 1, totalPages, pageMargin, 10);
       }
 
       // Finalize the PDF
@@ -197,6 +169,57 @@ export async function createPDFWithBarsAndPie(
       reject(new Error(`Error in PDF creation: ${(error as Error).message}`));
     }
   });
+}
+
+/**
+ * Adds an elegant footer with page number and date to the document
+ */
+function addElegantFooter(
+  doc: PDFKit.PDFDocument,
+  pageNumber: number,
+  totalPages: number,
+  margin: number,
+  fontSize: number
+): void {
+  // Calculate footer position at bottom of page
+  const footerY = doc.page.height - margin - 15;
+  
+  // Format date with elegant format
+  const currentDate = new Date().toLocaleDateString('en-US', {
+    year: 'numeric', 
+    month: 'long', 
+    day: 'numeric'
+  });
+  
+  // Save current drawing state
+  doc.save();
+  
+  // Add subtle line above footer (professional touch)
+  doc.strokeColor('#cccccc')
+     .lineWidth(0.5)
+     .moveTo(margin, footerY - 10)
+     .lineTo(doc.page.width - margin, footerY - 10)
+     .stroke();
+
+  // Return to default color
+  doc.fillColor('black');
+  
+  // Add date on left side of footer
+  doc.font('Helvetica')
+     .fontSize(fontSize)
+     .text(currentDate, 
+           margin, 
+           footerY, 
+           { align: 'left' });
+
+  // Add page number on right side (same footer, same page)
+  doc.text(`Page ${pageNumber} of ${totalPages}`,
+           doc.page.width - margin - 100,
+           footerY,
+           { align: 'right', width: 100 });
+  
+  // Restore drawing state
+  doc.restore();
 }
 
 /**
@@ -217,23 +240,6 @@ async function fetchImageBuffer(url: string): Promise<Buffer> {
   } catch (error) {
     throw new Error(`Failed to fetch image: ${(error as Error).message}`);
   }
-}
-
-/**
- * Format a date according to the specified format
- */
-function formatDate(date: Date, format: string): string {
-  const pad = (num: number): string => (num < 10 ? '0' + num : num.toString());
-  
-  const year = date.getFullYear();
-  const month = pad(date.getMonth() + 1);
-  const day = pad(date.getDate());
-  
-  // Simple format replacement
-  return format
-    .replace('YYYY', year.toString())
-    .replace('MM', month)
-    .replace('DD', day);
 }
 
 /**
@@ -432,7 +438,7 @@ function renderBarChart(
   }
   
   // Update position - ensure enough space for labels and footer
-  doc.y = startY + chartHeight + 50; // Increased this to ensure no overlap with footer
+  doc.y = startY + chartHeight + 50; // Ensure no overlap with footer
 }
 
 /**
@@ -515,7 +521,7 @@ function renderPieChart(
   }
   
   // Update position - ensure enough space for footer
-  doc.y = centerY + radius + 50; // Increased this to ensure no overlap with footer
+  doc.y = centerY + radius + 50; // Ensure no overlap with footer
 }
 
 /**
