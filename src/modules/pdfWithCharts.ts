@@ -30,6 +30,7 @@ interface PDFOptions {
   fontSize?: number;
   companyNameFontSize?: number;
   logoWidth?: number;
+  dateFormat?: string;
 }
 
 /**
@@ -55,6 +56,7 @@ export async function createPDFWithBarsAndPie(
   const fontSize = options.fontSize || 12;
   const companyNameFontSize = options.companyNameFontSize || 16;
   const logoWidth = options.logoWidth || 100;
+  const dateFormat = options.dateFormat || 'MM/DD/YYYY';
 
   return new Promise<Buffer>(async (resolve, reject) => {
     try {
@@ -82,7 +84,7 @@ export async function createPDFWithBarsAndPie(
         reject(new Error(`PDF generation error: ${err.message}`));
       });
 
-      // Add header with logo and company name
+      // Add header with logo on left and company name on right
       if (logoUrl) {
         try {
           const imageBuffer = await fetchImageBuffer(logoUrl);
@@ -95,44 +97,20 @@ export async function createPDFWithBarsAndPie(
             pageMargin, 
             { width: logoWidth }
           );
-            
-          // Add company name next to logo
-          const logoHeight = dims.height 
-            ? (dims.height * logoWidth) / (dims.width || 1)
-            : logoWidth;
-            
-          doc.fontSize(companyNameFontSize)
-             .font(`${fontFamily}-Bold`)
-             .text(
-               companyName, 
-               pageMargin + logoWidth + 20, 
-               pageMargin + (logoHeight/2) - 10, 
-               { align: 'left' }
-             );
         } catch (logoError) {
           console.warn(`Logo could not be added: ${(logoError as Error).message}`);
-          
-          // Add company name at the top left if logo fails
-          doc.fontSize(companyNameFontSize)
-             .font(`${fontFamily}-Bold`)
-             .text(
-               companyName, 
-               pageMargin, 
-               pageMargin, 
-               { align: 'left' }
-             );
         }
-      } else {
-        // No logo, just add company name at the top left
-        doc.fontSize(companyNameFontSize)
-           .font(`${fontFamily}-Bold`)
-           .text(
-             companyName, 
-             pageMargin, 
-             pageMargin, 
-             { align: 'left' }
-           );
       }
+      
+      // Add company name at the top right side
+      doc.fontSize(companyNameFontSize)
+         .font(`${fontFamily}-Bold`)
+         .text(
+           companyName, 
+           doc.page.width - pageMargin - 200, // Position from right side
+           pageMargin, 
+           { align: 'right', width: 200 } // Keep right alignment
+         );
       
       // Move down after header
       doc.moveDown(3);
@@ -169,17 +147,30 @@ export async function createPDFWithBarsAndPie(
         doc.moveDown(2);
       }
 
-      // Add page numbers
+      // Format current date
+      const currentDate = formatDate(new Date(), dateFormat);
+
+      // Add footer with date and page numbers to each page
       const range = doc.bufferedPageRange();
       for (let i = 0; i < range.count; i++) {
         doc.switchToPage(i);
+        
+        // Add date on the left
         doc.fontSize(10)
            .text(
-             `Page ${i + 1} of ${range.count}`,
-             0,
-             doc.page.height - pageMargin - 20,
-             { align: 'center' }
+             currentDate,
+             pageMargin,
+             doc.page.height - pageMargin - 15,
+             { align: 'left' }
            );
+        
+        // Add page numbers on the right
+        doc.text(
+          `Page ${i + 1} of ${range.count}`,
+          doc.page.width - pageMargin - 100,
+          doc.page.height - pageMargin - 15,
+          { align: 'right', width: 100 }
+        );
       }
 
       // Finalize the PDF
@@ -211,6 +202,23 @@ async function fetchImageBuffer(url: string): Promise<Buffer> {
 }
 
 /**
+ * Format a date according to the specified format
+ */
+function formatDate(date: Date, format: string): string {
+  const pad = (num: number): string => (num < 10 ? '0' + num : num.toString());
+  
+  const year = date.getFullYear();
+  const month = pad(date.getMonth() + 1);
+  const day = pad(date.getDate());
+  
+  // Simple format replacement
+  return format
+    .replace('YYYY', year.toString())
+    .replace('MM', month)
+    .replace('DD', day);
+}
+
+/**
  * Renders a table in the PDF document
  */
 async function renderTable(
@@ -222,9 +230,20 @@ async function renderTable(
 ): Promise<void> {
   // Add table title if provided
   if (table.title) {
+    // Save current position
+    const originalY = doc.y;
+    
+    // Ensure enough space for title
+    if (originalY + 50 > doc.page.height - pageMargin - 30) {
+      doc.addPage();
+    }
+    
     doc.font(`${fontFamily}-Bold`)
        .fontSize(14)
-       .text(table.title, { align: 'center' })
+       .text(table.title, {
+         align: 'center',
+         width: doc.page.width - (pageMargin * 2) // Ensure title has full width and doesn't wrap
+       })
        .moveDown();
   }
 
@@ -237,6 +256,12 @@ async function renderTable(
   let startY = doc.y;
   const headerHeight = 20;
   const rowHeight = 15;
+
+  // Check if we need a new page before starting the table
+  if (startY + headerHeight + rowHeight > doc.page.height - pageMargin - 30) {
+    doc.addPage();
+    startY = pageMargin + 20;
+  }
 
   // Draw header
   let x = pageMargin;
@@ -265,7 +290,29 @@ async function renderTable(
     // Check if we need a new page
     if (startY + rowHeight > doc.page.height - pageMargin - 30) {
       doc.addPage();
+      
+      // Redraw header on new page
       startY = pageMargin + 20;
+      x = pageMargin;
+      
+      doc.fillColor('#D3D3D3');
+      doc.rect(pageMargin, startY, availableWidth, headerHeight).fill();
+      
+      doc.fillColor('#000000');
+      doc.font(`${fontFamily}-Bold`).fontSize(fontSize);
+      
+      for (let i = 0; i < table.headers.length; i++) {
+        doc.text(
+          table.headers[i],
+          x + 5,
+          startY + 5,
+          { width: columnWidths[i] - 10 }
+        );
+        x += columnWidths[i];
+      }
+      
+      startY += headerHeight;
+      doc.font(fontFamily).fontSize(fontSize - 1);
     }
 
     const row = table.rows[rowIndex];
@@ -408,21 +455,9 @@ function renderPieChart(
     doc.save();
     doc.fillColor(sliceColor);
     
-    // Draw pie slice manually using moveTo and lineTo instead of arc
-    doc.moveTo(centerX, centerY);
-    
-    // Add pie slice path with multiple small lines to simulate an arc
-    // This works around the PDFKit TypeScript arc method issue
-    const segments = 16; // Number of segments to approximate the arc
-    for (let j = 0; j <= segments; j++) {
-      const angle = startAngle + (endAngle - startAngle) * (j / segments);
-      const xPos = centerX + Math.cos(angle) * radius;
-      const yPos = centerY + Math.sin(angle) * radius;
-      doc.lineTo(xPos, yPos);
-    }
-    
-    doc.lineTo(centerX, centerY);
-    doc.closePath().fill();
+    // Draw pie slice manually without using arc
+    drawPieSlice(doc, centerX, centerY, radius, startAngle, endAngle);
+    doc.fill();
     doc.restore();
     
     // Update angle
@@ -431,7 +466,7 @@ function renderPieChart(
   
   // Draw legend
   const legendX = pageMargin + chartWidth + 20;
-  let legendY = doc.y + 20;
+  let legendY = centerY - (chart.data.length * 10);
   
   for (let i = 0; i < chart.data.length; i++) {
     // Choose color
@@ -460,4 +495,36 @@ function renderPieChart(
   
   // Update position
   doc.y = centerY + radius + 20;
+}
+
+/**
+ * Draw a pie slice manually without using arc (workaround for TypeScript PDFKit issue)
+ */
+function drawPieSlice(
+  doc: PDFKit.PDFDocument, 
+  centerX: number, 
+  centerY: number, 
+  radius: number, 
+  startAngle: number, 
+  endAngle: number
+): void {
+  // Move to center
+  doc.moveTo(centerX, centerY);
+  
+  // Draw line to start of arc
+  const startX = centerX + Math.cos(startAngle) * radius;
+  const startY = centerY + Math.sin(startAngle) * radius;
+  doc.lineTo(startX, startY);
+  
+  // Draw arc with multiple small lines
+  const steps = 16; // Number of segments to approximate the arc
+  for (let i = 1; i <= steps; i++) {
+    const theta = startAngle + (endAngle - startAngle) * (i / steps);
+    const x = centerX + Math.cos(theta) * radius;
+    const y = centerY + Math.sin(theta) * radius;
+    doc.lineTo(x, y);
+  }
+  
+  // Close path back to center
+  doc.lineTo(centerX, centerY);
 }
