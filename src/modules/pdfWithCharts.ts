@@ -2,7 +2,6 @@ import PDFDocument from 'pdfkit';
 import { Buffer } from 'buffer';
 import axios from 'axios';
 import * as fs from 'fs';
-import * as path from 'path';
 import * as imageSize from 'image-size';
 
 // Interface definitions
@@ -31,6 +30,8 @@ interface PDFOptions {
   companyNameFontSize?: number;
   logoWidth?: number;
   dateFormat?: string;
+  title?: string;
+  titleFontSize?: number;
 }
 
 /**
@@ -57,6 +58,7 @@ export async function createPDFWithBarsAndPie(
   const companyNameFontSize = options.companyNameFontSize || 16;
   const logoWidth = options.logoWidth || 100;
   const dateFormat = options.dateFormat || 'MM/DD/YYYY';
+  const titleFontSize = options.titleFontSize || 18;
 
   return new Promise<Buffer>(async (resolve, reject) => {
     try {
@@ -88,8 +90,6 @@ export async function createPDFWithBarsAndPie(
       if (logoUrl) {
         try {
           const imageBuffer = await fetchImageBuffer(logoUrl);
-          const dims = imageSize.imageSize(imageBuffer);
-          
           // Add logo to top left
           doc.image(
             imageBuffer, 
@@ -107,10 +107,21 @@ export async function createPDFWithBarsAndPie(
          .font(`${fontFamily}-Bold`)
          .text(
            companyName, 
-           doc.page.width - pageMargin - 200, // Position from right side
+           doc.page.width - pageMargin - 200, 
            pageMargin, 
-           { align: 'right', width: 200 } // Keep right alignment
+           { align: 'right', width: 200 }
          );
+      
+      // Add PDF title in the center if provided
+      if (options.title) {
+        doc.moveDown(2);
+        doc.fontSize(titleFontSize)
+           .font(`${fontFamily}-Bold`)
+           .text(options.title, {
+             align: 'center',
+             width: doc.page.width - (pageMargin * 2)
+           });
+      }
       
       // Move down after header
       doc.moveDown(3);
@@ -127,7 +138,7 @@ export async function createPDFWithBarsAndPie(
       // Render charts
       for (const chart of charts) {
         // Check if we need a new page
-        if (doc.y + (chart.height || 300) + 50 > doc.page.height - pageMargin) {
+        if (doc.y + (chart.height || 300) + 60 > doc.page.height - pageMargin - 30) {
           doc.addPage();
         }
 
@@ -150,26 +161,29 @@ export async function createPDFWithBarsAndPie(
       // Format current date
       const currentDate = formatDate(new Date(), dateFormat);
 
-      // Add footer with date and page numbers to each page
-      // Position them closer to the bottom of the page
-      const range = doc.bufferedPageRange();
-      for (let i = 0; i < range.count; i++) {
+      // Add footer with date and page numbers
+      // Register a function to add to each page
+      const totalPages = doc.bufferedPageRange().count;
+      for (let i = 0; i < totalPages; i++) {
         doc.switchToPage(i);
         
-        // Add date on the left - position it very close to the bottom
+        // Fixed position at bottom of page
+        const footerY = doc.page.height - 30;
+        
+        // Add date on the left
         doc.fontSize(10)
            .text(
              currentDate,
              pageMargin,
-             doc.page.height - pageMargin + 20, // Position closer to the bottom edge
+             footerY,
              { align: 'left' }
            );
         
         // Add page numbers on the right
         doc.text(
-          `Page ${i + 1} of ${range.count}`,
+          `Page ${i + 1} of ${totalPages}`,
           doc.page.width - pageMargin - 100,
-          doc.page.height - pageMargin + 20, // Position closer to the bottom edge
+          footerY,
           { align: 'right', width: 100 }
         );
       }
@@ -229,21 +243,17 @@ async function renderTable(
   fontFamily: string,
   fontSize: number
 ): Promise<void> {
-  // Add table title if provided
+  // Add table title if provided (centered)
   if (table.title) {
-    // Save current position
-    const originalY = doc.y;
-    
     // Ensure enough space for title
-    if (originalY + 50 > doc.page.height - pageMargin - 30) {
+    if (doc.y + 40 > doc.page.height - pageMargin - 30) {
       doc.addPage();
     }
     
     doc.font(`${fontFamily}-Bold`)
        .fontSize(14)
        .text(table.title, {
-         align: 'center',
-         width: doc.page.width - (pageMargin * 2) // Full width to prevent wrapping
+         align: 'center'
        })
        .moveDown();
   }
@@ -412,7 +422,7 @@ function renderBarChart(
   }
   
   // Update position - ensure enough space for labels and footer
-  doc.y = startY + chartHeight + 40;
+  doc.y = startY + chartHeight + 50; // Increased this to ensure no overlap with footer
 }
 
 /**
@@ -495,7 +505,7 @@ function renderPieChart(
   }
   
   // Update position - ensure enough space for footer
-  doc.y = centerY + radius + 40;
+  doc.y = centerY + radius + 50; // Increased this to ensure no overlap with footer
 }
 
 /**
