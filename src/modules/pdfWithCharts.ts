@@ -112,19 +112,18 @@ export async function createPDFWithBarsAndPie(
            { align: 'right', width: 200 }
          );
       
-      // Add PDF title in the center if provided
+      // Move down after header
+      doc.moveDown(3);
+      
+      // Add PDF title in the center if provided (separated from company name)
       if (options.title) {
-        doc.moveDown(2);
         doc.fontSize(titleFontSize)
            .font(`${fontFamily}-Bold`)
            .text(options.title, {
              align: 'center',
-             width: doc.page.width - (pageMargin * 2)
            });
+        doc.moveDown(2);
       }
-      
-      // Move down after header
-      doc.moveDown(3);
       
       // Reset font for content
       doc.font(fontFamily).fontSize(fontSize);
@@ -158,24 +157,24 @@ export async function createPDFWithBarsAndPie(
         doc.moveDown(2);
       }
 
+      // Add footer to each page
+      const range = doc.bufferedPageRange();
+      const totalPages = range.count;
+      
       // Format current date
       const currentDate = formatDate(new Date(), dateFormat);
-
-      // Add footer with date and page numbers
-      // Register a function to add to each page
-      const totalPages = doc.bufferedPageRange().count;
+      
+      // Add footer to each page
       for (let i = 0; i < totalPages; i++) {
         doc.switchToPage(i);
         
-        // Fixed position at bottom of page
-        const footerY = doc.page.height - 30;
-        
         // Add date on the left
         doc.fontSize(10)
+           .fillColor('#000000')
            .text(
              currentDate,
              pageMargin,
-             footerY,
+             doc.page.height - 25,
              { align: 'left' }
            );
         
@@ -183,7 +182,7 @@ export async function createPDFWithBarsAndPie(
         doc.text(
           `Page ${i + 1} of ${totalPages}`,
           doc.page.width - pageMargin - 100,
-          footerY,
+          doc.page.height - 25,
           { align: 'right', width: 100 }
         );
       }
@@ -243,18 +242,25 @@ async function renderTable(
   fontFamily: string,
   fontSize: number
 ): Promise<void> {
-  // Add table title if provided (centered)
+  // Add table title if provided (centered with proper width)
   if (table.title) {
-    // Ensure enough space for title
+    // Check for page break
     if (doc.y + 40 > doc.page.height - pageMargin - 30) {
       doc.addPage();
     }
     
+    // Center the table title using the full page width
     doc.font(`${fontFamily}-Bold`)
        .fontSize(14)
-       .text(table.title, {
-         align: 'center'
-       })
+       .text(
+         table.title, 
+         pageMargin,  // Start at left margin
+         doc.y,       // Current Y position
+         { 
+           align: 'center',
+           width: doc.page.width - (pageMargin * 2)  // Use full page width
+         }
+       )
        .moveDown();
   }
 
