@@ -346,7 +346,7 @@ describe('PDF Generator', () => {
     test('should generate PDF with bar charts, pie charts, and tables using createPDFWithBarsAndPie', async () => {
         // Test data configuration
         const logoUrl = "https://multi-tenant-dev.n-oms.in/assets/logo-hd2-BZqe1saO.png";
-        const companyName = "NOMS Pvt Ltd - Charts & Analytics";
+        const companyName = "NOMS Pvt Ltd";
 
         // Sample tables data
         const tables = [
